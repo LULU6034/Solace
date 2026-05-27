@@ -1,82 +1,92 @@
-# Design System — AI 桌面宠物 v2
+# Design System — AI 桌面宠物 v3
 
 ## Product Context
 - **这是什么：** Electron + Vue 3 桌面宠物，透明窗口叠加在桌面上，Canvas 2D 像素宠物 + 聊天窗口
 - **面向谁：** 需要桌面 AI 助手的开发者
 - **品类：** 桌面伴侣/桌面工具
-- **设计参考：** 彩铅素描画——暖纸底 + 冷铅笔线 + 淡金点缀
+- **设计方向：** 静屿 — 暖灰陶土 / 暮蓝烟紫 双主题
 
 ## Aesthetic Direction
-- **方向：** 彩铅素描 (Colored Pencil Sketch)
-- **装饰级别：** intentional（纸纹理 + 铅笔线边框 + 冷暖对比层次）
-- **核心原理：** 冷暖对比创造层次——暖色纸底承载内容，冷蓝灰铅笔线提供定义和立体感
-- **情绪：** 像朋友在本子上随手画的小画。温暖、手工感、不完美反而有生命
+- **方向：** 静屿 (Serene Island) — 极简克制，温润质感
+- **装饰级别：** intentional（环境光晕 + 细腻阴影 + 毛玻璃 + 材质温润感）
+- **核心原理：** 大量留白承载内容，细腻阴影和微妙边框提供层次。所有交互克制优雅，无多余视觉噪音
+- **情绪：** 静谧、温润、克制。像午后阳光下的一张素纸，不打扰、不喧哗
 
 ## Typography
-- **UI/对话：** Segoe UI / PingFang SC / Microsoft YaHei UI
-- **代码：** JetBrains Mono / SF Mono / Cascadia Code
-- **字号层级：** 10.5px（辅助）、11px（标签）、12px（正文）、12.5-13px（输入）、16px（标题）
+- **UI/对话：** Inter (可变字重 400-600) / system-ui / PingFang SC / Microsoft YaHei UI
+- **代码：** JetBrains Mono / Cascadia Code / Consolas
+- **字号层级：** 10.5px（辅助）、11px（标签）、12px（正文）、14px（输入/消息）、18-22px（标题）
+- **字重：** 标签 600、正文 400-500、标题 500-600
 
 ## Color
 
-### 纸底（暖）
+### 浅色主题（暖灰陶土）
 | Token | Hex | 用途 |
 |-------|-----|------|
-| paper | #e8e5da | 主背景——偏绿暖灰纸 |
-| paper-light | #f0ede3 | 次要面板 |
-| paper-card | #f8f6f0 | 卡片/气泡 |
-| paper-deep | #dcd8cc | 深纸色 |
+| bg | #F6F3EF | 主背景——暖灰米白 |
+| bg-elevated | rgba(255,252,248,0.98) | 卡片/对话框 |
+| bg-card | #FCF8F4 | 次要面板 |
+| bg-input | #FFFFFF | 输入框 |
+| border | #EDE6DE | 边框 |
+| border-strong | #D9D0C5 | 强边框 |
+| text-primary | #3E322A | 主文字——深陶土灰 |
+| text-secondary | #8F7868 | 次要文字——暖灰褐 |
+| text-muted | #B8A898 | 提示文字 |
+| accent | #B2957A | 点缀色/主按钮——陶土棕 |
 
-### 铅笔线（冷蓝灰）——提供层次
+### 深色主题（暮蓝烟紫）
 | Token | Hex | 用途 |
 |-------|-----|------|
-| pencil-dark | #6b7a90 | 文字/深线 |
-| pencil | #8895a5 | 边框/图标 |
-| pencil-light | #a5afbb | 提示文字 |
-| pencil-line | rgba(107,122,144,0.18) | 分隔线 |
-| pencil-border | rgba(107,122,144,0.22) | 卡片边框 |
-| pencil-shadow | rgba(107,122,144,0.07) | 浅阴影 |
-| pencil-shadow-deep | rgba(107,122,144,0.14) | 深阴影 |
-
-### 文字（冷调）
-| Token | Hex | 用途 |
-|-------|-----|------|
-| ink | #3d4555 | 主文字 |
-| ink-soft | #6b7285 | 次要文字 |
-| ink-light | #959db0 | 提示/占位 |
-
-### 暖色点缀
-| Token | Hex | 用途 |
-|-------|-----|------|
-| gold | #e8d5b0 | 主要点缀（标签下划线、主按钮） |
-| peach | #f0cfbf | 辅助点缀 |
+| bg | #1E1E2A | 主背景——深蓝灰 |
+| bg-elevated | rgba(32,33,44,0.96) | 卡片/对话框 |
+| bg-card | #242533 | 次要面板 |
+| bg-input | #2C2E3F | 输入框 |
+| border | #343746 | 边框 |
+| border-strong | #454860 | 强边框 |
+| text-primary | #EDE7F0 | 主文字——浅紫灰 |
+| text-secondary | #B6A8C2 | 次要文字 |
+| text-muted | #7A7088 | 提示文字 |
+| accent | #B7A0C0 | 点缀色/主按钮——淡紫 |
 
 ## Spacing
 - **基准：** 8px
 - **密度：** comfortable
-- **消息间距：** 10px
+- **消息间距：** 16px
 
 ## Layout
 - **聊天窗口：** 480x620
 - **设置面板：** 520px 宽，右侧 slide-in
-- **圆角：** sm: 2-4px, md: 4-6px, lg: 6-8px
+- **圆角：** xs: 6px, sm: 10px, md: 16px, lg: 24px, xl: 2rem, pill: 60px
 
 ## Motion
 - **方式：** intentional
-- **缓动：** enter: cubic-bezier(0.22, 0.61, 0.36, 1)
-- **时长：** 微交互 100-150ms，入场 220ms，呼吸 1.4-2.8s
+- **主缓动：** cubic-bezier(0.2, 0.9, 0.4, 1.1) — spring-like entry
+- **退出缓动：** cubic-bezier(0, 0, 0.2, 1) — ease-out
+- **时长：** 微交互 120ms，常规 200ms，入场 300ms
+- **安静模式：** .quiet-mode 或 prefers-reduced-motion 时乘 0.3
+
+## Interaction Patterns
+1. **悬停上浮：** 按钮/卡片 hover 时 translateY(-2px) + 阴影加深
+2. **点击微收缩：** :active 时 scale(0.97)，持续 120ms，绝对无波纹扩散
+3. **输入聚焦：** 边框颜色切换 + box-shadow 光晕
+4. **对话框入场：** slideIn (translateY(16px) + scale(0.96) → 0/1)
+5. **设置面板：** 右侧 slide-in + 背景渐显
+6. **消息入场：** translateY(14px) → 0，spring 缓动
 
 ## 角色 Accent 映射
 | 角色 | 色值 | 感觉 |
 |------|------|------|
-| Clawd (🦞) | #e8d5b0 (淡金) | 温暖、可靠 |
-| 云朵 (☁️) | #a8b4c3 (冷灰蓝) | 冷静、理性 |
-| Coco (⌨️) | #b5c4b8 (淡青灰) | 清新、亲和 |
+| Clawd (🦞) | #B2957A | 温暖、可靠 |
+| 云朵 (☁️) | #A0B0C0 | 冷静、理性 |
+| Coco (⌨️) | #B5C4B8 | 清新、亲和 |
 
 ## 关键决策
 | 决策 | 理由 |
 |------|------|
-| 冷蓝灰铅笔线 + 暖纸底 | 冷暖对比是彩铅画的层次来源 |
-| 背景用偏绿暖灰而非纯暖米白 | 参考图 16% 主导色 #e0e0d0 带绿相 |
-| 阴影用冷蓝灰而非暖棕 | 模拟铅笔排线而非炭笔涂抹 |
-| 点缀色克制成淡金 | 参考图中暖色占比仅 37%，大面积要冷 |
+| Inter 替代 Caveat 手写体 | 更现代、更通透，桌面应用更舒适 |
+| 大圆角体系 (pill: 60px) | 胶囊形态是静屿核心视觉语言 |
+| 取消贴纸装饰 (📎/✨) | 保持克制，减少视觉噪音 |
+| 毛玻璃效果 | 提升层次感，窗口更轻盈 |
+| 环境光晕 (径向渐变) | 营造微妙空间氛围，不干扰内容 |
+| 双主题 CSS 变量切换 | 统一 token 体系，html.dark 自动切换 |
+| 安静模式 (--anim-speed) | 尊重用户偏好，动画速度可降 70% |

@@ -71,7 +71,7 @@ function fmtInput(input) {
 .agent-steps {
   margin: 6px 0 10px;
   padding-left: 8px;
-  border-left: 2px dashed #E2D9CF;
+  border-left: 2px solid var(--border);
 }
 
 .agent-steps-inner {
@@ -94,11 +94,11 @@ function fmtInput(input) {
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  color: #8B7A65;
+  color: var(--ink-soft);
   padding: 4px 8px;
-  background: #FBF7F2;
+  background: var(--paper-card);
   border-radius: 8px;
-  border: 1px solid #EDE5D9;
+  border: 1px solid var(--border);
   font-style: italic;
 }
 
@@ -114,9 +114,9 @@ function fmtInput(input) {
 
 /* 工具调用卡片 */
 .step-action {
-  background: #F5EFE6;
-  border-radius: 10px;
-  border: 1.2px solid #E2D9CF;
+  background: var(--paper-deep);
+  border-radius: 8px;
+  border: 1px solid var(--border);
   overflow: hidden;
 }
 
@@ -124,14 +124,14 @@ function fmtInput(input) {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
-  background: #EFE8DC;
-  border-bottom: 1px solid #E2D9CF;
+  padding: 5px 8px;
+  background: var(--paper-card);
+  border-bottom: 1px solid var(--border);
 }
 
 .step-tool-name {
   font-weight: 600;
-  color: #5C4A32;
+  color: var(--ink);
   font-family: monospace;
   font-size: 11.5px;
 }
@@ -139,19 +139,19 @@ function fmtInput(input) {
 .step-badge {
   margin-left: auto;
   font-size: 10px;
-  color: #9B8870;
-  background: #E8DFD2;
+  color: var(--ink-light);
+  background: var(--paper-deep);
   padding: 1px 6px;
-  border-radius: 6px;
+  border-radius: 4px;
 }
 
 .step-action-input {
-  padding: 6px 10px;
+  padding: 5px 8px;
 }
 
 .step-action-input code {
   font-size: 10.5px;
-  color: #6B5A42;
+  color: var(--ink-soft);
   white-space: pre-wrap;
   word-break: break-all;
   font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
@@ -159,9 +159,9 @@ function fmtInput(input) {
 
 /* 工具结果 */
 .step-observation {
-  background: #FAF8F4;
-  border-radius: 10px;
-  border: 1.2px solid #E5DDD0;
+  background: var(--paper-card);
+  border-radius: 8px;
+  border: 1px solid var(--border);
   overflow: hidden;
 }
 
@@ -169,14 +169,14 @@ function fmtInput(input) {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 10px;
+  padding: 5px 8px;
   font-size: 11px;
-  color: #8B7A65;
-  border-bottom: 1px solid #EDE5D9;
+  color: var(--ink-soft);
+  border-bottom: 1px solid var(--border);
 }
 
 .step-obs-content {
-  padding: 6px 10px;
+  padding: 5px 8px;
   max-height: 120px;
   overflow-y: auto;
 }
@@ -184,7 +184,7 @@ function fmtInput(input) {
 .step-obs-content pre {
   margin: 0;
   font-size: 10.5px;
-  color: #5C4A32;
+  color: var(--ink);
   white-space: pre-wrap;
   word-break: break-all;
   font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
@@ -197,7 +197,7 @@ function fmtInput(input) {
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
-  color: #8B7A65;
+  color: var(--ink-soft);
   font-size: 11px;
 }
 
@@ -206,6 +206,10 @@ function fmtInput(input) {
   display: flex;
   justify-content: center;
   padding: 1px 0;
-  opacity: 0.6;
+  opacity: 0.4;
+}
+
+.step-connector svg path {
+  stroke: var(--ink-light);
 }
 </style>

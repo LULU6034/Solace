@@ -120,10 +120,10 @@ class PythonBridge {
         if (this.ready) resolve(true);
         else setTimeout(check, 50);
       };
-      // 10秒超时
+      // 30秒超时 (Windows Python 启动慢)
       setTimeout(() => {
         if (!this.ready) {
-          console.error('[python-bridge] 启动超时(10s)');
+          console.error('[python-bridge] 启动超时(30s)');
           resolve(false);
         }
       }, 10000);
@@ -201,6 +201,7 @@ class PythonBridge {
       throw new Error('Python Agent 未就绪');
     }
     const line = JSON.stringify(msg);
+    console.log('[python-bridge] SEND:', msg.type, msg.request_id?.slice(0, 20));
     this.process.stdin.write(line + '\n');
   }
 

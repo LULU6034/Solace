@@ -1,4 +1,4 @@
-from .file_tools import read_file, write_file, list_files
+from .file_tools import read_file, write_file, list_files, read_image
 from .command_tool import execute_command, COMMAND_NEEDS_APPROVAL
 from .web_tools import web_search, web_fetch
 from .memory_tools import remember, recall
@@ -6,11 +6,12 @@ from .memory_tools import remember, recall
 def get_all_tools():
     """返回所有可用工具的列表"""
     return [
-        web_search,
+        web_search,  # Tavily → SearXNG → DDG 三级降级
         web_fetch,
         read_file,
         write_file,
         list_files,
+        read_image,
         execute_command,
         remember,
         recall,

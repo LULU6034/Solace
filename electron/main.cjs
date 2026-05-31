@@ -1,8 +1,26 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, globalShortcut } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, globalShortcut, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
 const isDev = process.env.ELECTRON_IS_DEV === 'true' || !app.isPackaged;
+
+// ── Windows GPU 缓存权限问题根治 ──
+// Chromium 在 Windows 上常因磁盘缓存目录权限/锁定导致崩溃。
+// 桌面宠物是 Canvas 2D 渲染，不需要 GPU 加速和磁盘缓存。
+app.commandLine.appendSwitch('disable-gpu');
+app.commandLine.appendSwitch('disable-gpu-compositing');
+app.commandLine.appendSwitch('disable-gpu-sandbox');
+app.commandLine.appendSwitch('disable-software-rasterizer');
+app.commandLine.appendSwitch('in-process-gpu');
+// 关键：把磁盘缓存定向到系统的临时目录（总是可写的）
+app.commandLine.appendSwitch('disk-cache-dir', path.join(require('os').tmpdir(), 'ai-pet-cache'));
+app.commandLine.appendSwitch('disk-cache-size', '5242880'); // 5MB 上限
+app.commandLine.appendSwitch('disable-features', 'UseSkiaRenderer');
+// 禁用 Electron 网络服务的磁盘缓存
+app.commandLine.appendSwitch('disable-http-cache');
+
+// 必须在 app.whenReady() 之前
+app.disableHardwareAcceleration();
 
 let petWindow = null;
 let chatWindow = null;
@@ -76,7 +94,7 @@ function createChatWindow() {
   }
 
   chatWindow.once('ready-to-show', () => {
-    animateExpand(chatWindow, chatX, chatY, 520, 720);
+    animateExpand(chatWindow, chatX, chatY, 650, 780);
     if (pendingFile) {
       chatWindow.webContents.send('file-fed', {
         path: pendingFile.path,
@@ -145,14 +163,19 @@ function createTray() {
 }
 
 // IPC
-ipcMain.handle('open-chat', () => createChatWindow());
+ipcMain.handle('open-chat', () => {
+  console.log('[main] open-chat 收到, chatWindow:', chatWindow ? 'exists' : 'null')
+  createChatWindow()
+});
 ipcMain.handle('close-chat', () => {
   if (chatWindow) chatWindow.close();
 });
-ipcMain.handle('move-window', (_event, { dx, dy }) => {
-  if (petWindow) {
-    const [x, y] = petWindow.getPosition();
-    petWindow.setPosition(x + dx, y + dy);
+ipcMain.handle('move-window', (event, { dx, dy }) => {
+  const BrowserWindow = require('electron').BrowserWindow;
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win && !win.isDestroyed()) {
+    const [x, y] = win.getPosition();
+    win.setPosition(x + dx, y + dy);
   }
 });
 
@@ -176,6 +199,7 @@ ipcMain.handle('read-file-content', async (_event, filePath) => {
 });
 
 ipcMain.handle('notify-working', (_event, isWorking) => {
+  console.log('[main] notify-working:', isWorking)
   if (petWindow && !petWindow.isDestroyed()) {
     petWindow.webContents.send('working-state', { isWorking });
   }
@@ -194,12 +218,14 @@ const configPath = path.join(app.getPath('userData'), 'config.enc');
 
 function loadConfigFile() {
   try {
-    if (!fs.existsSync(configPath)) return null;
-    const encrypted = Buffer.from(fs.readFileSync(configPath, 'utf-8'), 'base64');
-    if (!safeStorage.isEncryptionAvailable()) return null;
+    if (!fs.existsSync(configPath)) { console.log('[main] loadConfigFile: 文件不存在:', configPath); return null; }
+    const raw = fs.readFileSync(configPath, 'utf-8');
+    console.log('[main] loadConfigFile: 文件存在, 大小:', raw.length, 'bytes');
+    const encrypted = Buffer.from(raw, 'base64');
+    if (!safeStorage.isEncryptionAvailable()) { console.log('[main] loadConfigFile: safeStorage 不可用'); return null; }
     const decrypted = safeStorage.decryptString(encrypted);
     return JSON.parse(decrypted);
-  } catch (_) { return null; }
+  } catch (e) { console.log('[main] loadConfigFile: 解密/解析失败:', e.message); return null; }
 }
 
 function saveConfigFile(config) {
@@ -211,13 +237,29 @@ function saveConfigFile(config) {
   } catch (_) { /* ignore */ }
 }
 
-ipcMain.handle('load-config', () => loadConfigFile());
+ipcMain.handle('load-config', () => {
+  const result = loadConfigFile();
+  console.log('[main] load-config:', result ? 'OK (keys: ' + Object.keys(result).join(',') + ')' : 'NULL');
+  return result;
+});
 ipcMain.handle('save-config', (_event, config) => { saveConfigFile(config); });
+
+// 头像上传
+ipcMain.handle('pick-avatar', async () => {
+  const win = BrowserWindow.getFocusedWindow()
+  const result = await dialog.showOpenDialog(win, {
+    properties: ['openFile'],
+    filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] }],
+  })
+  if (result.canceled || result.filePaths.length === 0) return null
+  const buf = fs.readFileSync(result.filePaths[0])
+  const ext = path.extname(result.filePaths[0]).toLowerCase().replace('.', '') || 'png'
+  const mime = ext === 'jpg' ? 'jpeg' : ext
+  return `data:image/${mime};base64,${buf.toString('base64')}`
+})
 
 // 禁用 GPU 硬件加速：透明窗口 + backdrop-filter 在 Windows 上
 // 容易导致 GPU 合成器崩溃，软件渲染对桌面宠物场景完全够用
-app.disableHardwareAcceleration();
-
 app.whenReady().then(() => {
   createPetWindow();
   createTray();

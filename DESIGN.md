@@ -1,92 +1,107 @@
-# Design System — AI 桌面宠物 v3
+# Design System — AI 桌面宠物 v4
 
 ## Product Context
-- **这是什么：** Electron + Vue 3 桌面宠物，透明窗口叠加在桌面上，Canvas 2D 像素宠物 + 聊天窗口
-- **面向谁：** 需要桌面 AI 助手的开发者
+- **这是什么：** Electron + Vue 3 桌面宠物，聊天窗口 + Canvas 2D 像素宠物
+- **面向谁：** 需要桌面 AI 助手的用户
 - **品类：** 桌面伴侣/桌面工具
-- **设计方向：** 静屿 — 暖灰陶土 / 暮蓝烟紫 双主题
+- **设计方向：** 专业 AI 工具 + 治愈宠物陪伴
 
 ## Aesthetic Direction
-- **方向：** 静屿 (Serene Island) — 极简克制，温润质感
-- **装饰级别：** intentional（环境光晕 + 细腻阴影 + 毛玻璃 + 材质温润感）
-- **核心原理：** 大量留白承载内容，细腻阴影和微妙边框提供层次。所有交互克制优雅，无多余视觉噪音
-- **情绪：** 静谧、温润、克制。像午后阳光下的一张素纸，不打扰、不喧哗
+- **参考：** Workus AI — 绿色品牌渐变、深色侧边栏、大白卡片、充足留白
+- **核心原理：** 深色导航 + 浅色内容区双栏布局。卡片承载功能，留白承载内容
+- **情绪：** 专业可信赖，同时保有宠物角色的温暖
 
 ## Typography
-- **UI/对话：** Inter (可变字重 400-600) / system-ui / PingFang SC / Microsoft YaHei UI
-- **代码：** JetBrains Mono / Cascadia Code / Consolas
-- **字号层级：** 10.5px（辅助）、11px（标签）、12px（正文）、14px（输入/消息）、18-22px（标题）
-- **字重：** 标签 600、正文 400-500、标题 500-600
+- **UI/对话：** Inter / system-ui / PingFang SC / Microsoft YaHei UI
+- **代码：** JetBrains Mono / Consolas
+- **字号层级：** 11px（辅助）、12px（标签/正文）、14px（输入）、16px（消息）、20-24px（标题）
+- **字重：** 标题 600-700、正文 400-500、标签 500
 
 ## Color
 
-### 浅色主题（暖灰陶土）
+### 品牌色
 | Token | Hex | 用途 |
 |-------|-----|------|
-| bg | #F6F3EF | 主背景——暖灰米白 |
-| bg-elevated | rgba(255,252,248,0.98) | 卡片/对话框 |
-| bg-card | #FCF8F4 | 次要面板 |
-| bg-input | #FFFFFF | 输入框 |
-| border | #EDE6DE | 边框 |
-| border-strong | #D9D0C5 | 强边框 |
-| text-primary | #3E322A | 主文字——深陶土灰 |
-| text-secondary | #8F7868 | 次要文字——暖灰褐 |
-| text-muted | #B8A898 | 提示文字 |
-| accent | #B2957A | 点缀色/主按钮——陶土棕 |
+| brand | #059669 | 品牌深绿 |
+| brand-light | #10B981 | 品牌亮绿 |
+| brand-gradient | linear-gradient(135deg, #059669, #10B981) | 按钮/强调 |
 
-### 深色主题（暮蓝烟紫）
+### 浅色主题（默认）
 | Token | Hex | 用途 |
 |-------|-----|------|
-| bg | #1E1E2A | 主背景——深蓝灰 |
-| bg-elevated | rgba(32,33,44,0.96) | 卡片/对话框 |
-| bg-card | #242533 | 次要面板 |
-| bg-input | #2C2E3F | 输入框 |
-| border | #343746 | 边框 |
-| border-strong | #454860 | 强边框 |
-| text-primary | #EDE7F0 | 主文字——浅紫灰 |
-| text-secondary | #B6A8C2 | 次要文字 |
-| text-muted | #7A7088 | 提示文字 |
-| accent | #B7A0C0 | 点缀色/主按钮——淡紫 |
+| bg | #F5F7FA | 主内容区背景 |
+| sidebar-bg | #1E1E2E | 侧边栏背景 |
+| card | #FFFFFF | 卡片/对话框 |
+| card-hover | #FAFBFC | 卡片悬停 |
+| border | #E8ECF0 | 边框 |
+| border-strong | #D0D5DD | 强边框 |
+| text-primary | #1A1A2E | 主文字 |
+| text-secondary | #5A6170 | 次要文字 |
+| text-muted | #88909E | 提示文字 |
+| accent | #1a5c3a | 点缀色 |
+| accent-soft | rgba(26,92,58,0.08) | 柔和点缀 |
+| input-bg | #FFFFFF | 输入框 |
+| input-border | #D0D5DD | 输入框边框 |
+| input-focus | #2d8a56 | 输入框聚焦色 |
+| success | #34C759 | 成功/在线 |
+| danger | #FF3B30 | 错误/删除 |
+| warning | #FF9500 | 警告 |
+
+### 深色主题
+| Token | Hex | 用途 |
+|-------|-----|------|
+| bg | #16161E | 主背景 |
+| sidebar-bg | #0F0F17 | 侧边栏更深 |
+| card | #1E1E2E | 卡片 |
+| card-hover | #242436 | 卡片悬停 |
+| border | #2A2A3C | 边框 |
+| border-strong | #3A3A50 | 强边框 |
+| text-primary | #EDEFF5 | 主文字 |
+| text-secondary | #9CA0B0 | 次要文字 |
+| text-muted | #6A6E7C | 提示文字 |
+| accent | #34C759 | 点缀色 |
+| accent-soft | rgba(52,199,89,0.1) | 柔和点缀 |
+| input-bg | #1E1E2E | 输入框 |
+| input-border | #2A2A3C | 输入框边框 |
+| input-focus | #34C759 | 输入框聚焦色 |
 
 ## Spacing
 - **基准：** 8px
-- **密度：** comfortable
-- **消息间距：** 16px
+- **密度：** comfortable（24px 模块间距）
+- **消息间距：** 20px
+- **卡片内边距：** 16-24px
 
 ## Layout
-- **聊天窗口：** 480x620
-- **设置面板：** 520px 宽，右侧 slide-in
-- **圆角：** xs: 6px, sm: 10px, md: 16px, lg: 24px, xl: 2rem, pill: 60px
+- **聊天窗口：** 650x780
+- **侧边栏：** 64px 宽（图标）+ 可展开 200px（标签）
+- **圆角：** xs: 6px, sm: 8px, md: 12px, lg: 16px, xl: 20px, pill: 60px
 
 ## Motion
 - **方式：** intentional
-- **主缓动：** cubic-bezier(0.2, 0.9, 0.4, 1.1) — spring-like entry
-- **退出缓动：** cubic-bezier(0, 0, 0.2, 1) — ease-out
+- **主缓动：** cubic-bezier(0.2, 0.9, 0.4, 1.1)
+- **退出缓动：** cubic-bezier(0, 0, 0.2, 1)
 - **时长：** 微交互 120ms，常规 200ms，入场 300ms
-- **安静模式：** .quiet-mode 或 prefers-reduced-motion 时乘 0.3
+- **安静模式：** prefers-reduced-motion 时乘 0.3
 
 ## Interaction Patterns
-1. **悬停上浮：** 按钮/卡片 hover 时 translateY(-2px) + 阴影加深
-2. **点击微收缩：** :active 时 scale(0.97)，持续 120ms，绝对无波纹扩散
-3. **输入聚焦：** 边框颜色切换 + box-shadow 光晕
-4. **对话框入场：** slideIn (translateY(16px) + scale(0.96) → 0/1)
-5. **设置面板：** 右侧 slide-in + 背景渐显
-6. **消息入场：** translateY(14px) → 0，spring 缓动
+1. **悬停上浮：** 按钮/卡片 hover translateY(-1px) + 阴影加深
+2. **点击反馈：** :active scale(0.98)
+3. **输入聚焦：** 边框色切换 + 2px 外发光
+4. **对话框入场：** slideIn(translateY(16px) + opacity 0→1)
+5. **消息入场：** translateY(8px) + opacity 0→1, spring
 
 ## 角色 Accent 映射
 | 角色 | 色值 | 感觉 |
 |------|------|------|
 | Clawd (🦞) | #B2957A | 温暖、可靠 |
-| 云朵 (☁️) | #A0B0C0 | 冷静、理性 |
-| Coco (⌨️) | #B5C4B8 | 清新、亲和 |
+| 小鱼 (🐟) | #2d8a56 | 清新、灵动 |
+| Coco (⌨️) | #5B8BA0 | 理性、专业 |
 
 ## 关键决策
 | 决策 | 理由 |
 |------|------|
-| Inter 替代 Caveat 手写体 | 更现代、更通透，桌面应用更舒适 |
-| 大圆角体系 (pill: 60px) | 胶囊形态是静屿核心视觉语言 |
-| 取消贴纸装饰 (📎/✨) | 保持克制，减少视觉噪音 |
-| 毛玻璃效果 | 提升层次感，窗口更轻盈 |
-| 环境光晕 (径向渐变) | 营造微妙空间氛围，不干扰内容 |
-| 双主题 CSS 变量切换 | 统一 token 体系，html.dark 自动切换 |
-| 安静模式 (--anim-speed) | 尊重用户偏好，动画速度可降 70% |
+| 双栏布局 (深色侧边栏 + 浅色内容) | 参考 Workus AI，导航与内容分离清晰 |
+| 品牌绿色系统 | 统一品牌识别，替代之前的暖灰陶土 |
+| 大圆角卡片 | 现代 AI 工具风格，视觉层次明确 |
+| 取消毛玻璃效果 | 更清晰的内容对比度，减少渲染负担 |
+| CSS 变量双主题 | html.dark 自动切换，统一 token |

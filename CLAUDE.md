@@ -113,3 +113,34 @@ When the user's request matches an available skill, invoke it via the Skill tool
 - Ship/deploy/PR → /ship or /land-and-deploy
 - Save progress → /context-save
 - Resume context → /context-restore
+
+## Karpathy Rules
+
+From [andrej-karpathy-skills](https://github.com/forrestchang/andrej-karpathy-skills).
+
+### 1. Think Before Coding
+- State assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them — don't pick silently.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+### 2. Simplicity First
+- No features beyond what was asked. No abstractions for single-use code.
+- If you write 200 lines and it could be 50, rewrite it.
+- Ask: "Would a senior engineer say this is overcomplicated?"
+
+### 3. Surgical Changes
+- Touch only what you must. Don't "improve" adjacent code.
+- Match existing style, even if you'd do it differently.
+- Every changed line should trace directly to the user's request.
+
+### 4. Goal-Driven Execution
+- "Fix the bug" → first write a test that reproduces it, then make it pass.
+- State success criteria before implementing. Loop until verified.
+
+## 记忆规则
+
+当用户说"保存"、"记住"、"记下来"时，必须执行：
+1. 把今天做的所有改动写入 `C:\Users\L\.claude\projects\C--Users-L\memory\ai-desktop-pet-latest-changes.md`
+2. 列出所有未解决的问题（含症状、排查方向）
+3. 用户提出的需求和偏好写入对应记忆文件（如 api-keys-config.md）
+4. 不要只靠 `CLAUDE.md` —— 它会被覆盖。记忆文件是持久的

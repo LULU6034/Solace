@@ -1,0 +1,10 @@
+{
+  "id": "weather",
+  "name": "天气查询",
+  "version": "1.0.0",
+  "description": "查询城市天气信息",
+  "trust": "restricted",
+  "contributes": {
+    "tools": ["weather-tool.js"]
+  }
+}

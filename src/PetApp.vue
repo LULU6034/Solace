@@ -66,6 +66,7 @@ let screenBounds = { left: 0, right: 1920, top: 0, bottom: 600 }
 let idleAction = 'none'      // 'none' | 'bounce' | 'look' | 'wiggle' | 'stretch'
 let idleStartTime = 0
 let idleTimer = null
+let idleBlendPrev = 0
 const IDLE_ACTIONS = ['bounce', 'look', 'wiggle', 'stretch']
 const IDLE_DURATIONS = { bounce: 1.2, look: 1.5, wiggle: 0.8, stretch: 1.6 }
 
@@ -164,12 +165,39 @@ let dragStartY = 0
 let hasMoved = false
 const DRAG_THRESHOLD = 4
 
+// 惯性滑动
+let lastDragTime = 0
+let lastDragDx = 0
+let lastDragDy = 0
+let inertiaAnim = null
+
+function applyInertia(vx, vy) {
+  if (inertiaAnim) cancelAnimationFrame(inertiaAnim)
+  const friction = 0.92
+  const minSpeed = 0.5
+  function step() {
+    const speed = Math.sqrt(vx * vx + vy * vy)
+    if (speed < minSpeed) { inertiaAnim = null; return }
+    window.electronAPI?.moveWindow(Math.round(vx), Math.round(vy), true)
+    vx *= friction
+    vy *= friction
+    inertiaAnim = requestAnimationFrame(step)
+  }
+  inertiaAnim = requestAnimationFrame(step)
+}
+
+let clickStartTime = 0
 function onMouseDown(e) {
   if (e.button !== 0) return
+  if (inertiaAnim) { cancelAnimationFrame(inertiaAnim); inertiaAnim = null }
+  clickStartTime = Date.now()
   isDragging = true
   hasMoved = false
   dragStartX = e.screenX
   dragStartY = e.screenY
+  lastDragTime = Date.now()
+  lastDragDx = 0
+  lastDragDy = 0
   document.addEventListener('mousemove', onMouseMove)
   document.addEventListener('mouseup', onMouseUp)
 }
@@ -182,6 +210,11 @@ function onMouseMove(e) {
     hasMoved = true
   }
   if (hasMoved) {
+    const now = Date.now()
+    const dt = Math.max(1, now - lastDragTime)
+    lastDragDx = dx / dt * 16  // normalize to ~16ms frame
+    lastDragDy = dy / dt * 16
+    lastDragTime = now
     dragStartX = e.screenX
     dragStartY = e.screenY
     window.electronAPI?.moveWindow(dx, dy, true)
@@ -194,6 +227,11 @@ function onMouseUp() {
   document.removeEventListener('mouseup', onMouseUp)
   if (!hasMoved) {
     window.electronAPI?.openChat()
+  } else {
+    // 松手后惯性滑动
+    const vx = lastDragDx * 0.6
+    const vy = lastDragDy * 0.6
+    if (Math.abs(vx) > 1 || Math.abs(vy) > 1) applyInertia(vx, vy)
   }
 }
 
@@ -356,6 +394,13 @@ function tick() {
   if (idleAction !== 'none' && IDLE_DURATIONS[idleAction] && time - idleStartTime > IDLE_DURATIONS[idleAction]) {
     idleAction = 'none'
   }
+  // 空闲状态平滑混合: 进入时从0过渡到1, 退出时从1退回到0
+  if (idleAction !== 'none') {
+    idleBlendPrev = Math.min(1, idleBlendPrev + 0.016 / 0.25)
+  } else {
+    idleBlendPrev = Math.max(0, idleBlendPrev - 0.016 / 0.2)
+  }
+  const idleBlend = idleBlendPrev
 
   const c = canvas.value
   if (c) {
@@ -389,6 +434,7 @@ function tick() {
       isWorking,
       idleAction,
       idlePhase,
+      idleBlend,
       isWatchingTV,
       tvPhase,
     })
@@ -440,6 +486,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (animId) cancelAnimationFrame(animId)
+  if (inertiaAnim) cancelAnimationFrame(inertiaAnim)
   clearTimeout(wanderTimer)
   clearTimeout(idleTimer)
   removeWorkingListener?.()

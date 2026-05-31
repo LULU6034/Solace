@@ -1,172 +1,303 @@
 /**
- * Agent IPC 处理器
- * 连接 Python Agent 服务与渲染进程
+ * Agent IPC 处理器 (v2 — Node.js Server + WebSocket)
+ *
+ * 连接 Node.js Agent Server 与渲染进程，替代 Python stdin/stdout 协议。
  */
 const { ipcMain } = require('electron');
-const { PythonBridge } = require('./python-bridge.cjs');
+const { ServerBridge } = require('./server-ipc.cjs');
 
 let bridge = null;
-let activeSessions = new Map(); // requestId -> { webContents, config }
 
 function getBridge() {
   if (!bridge) {
-    bridge = new PythonBridge();
+    bridge = new ServerBridge();
   }
   return bridge;
 }
 
-/**
- * 启动 Python Agent 服务
- */
 async function ensureAgentReady() {
   const b = getBridge();
   if (!b.isReady()) {
-    console.log('[agent-ipc] 启动 Python Agent 服务...');
+    console.log('[agent-ipc] 启动 Node.js Agent Server...');
     const ok = await b.start();
     if (!ok) {
-      throw new Error('Python Agent 服务启动失败,请检查 Python 环境和依赖是否安装');
+      throw new Error('Agent Server 启动失败');
     }
   }
   return b;
 }
 
-/**
- * 注册 IPC 处理器
- */
+function safeSend(wc, channel, data) {
+  if (wc && !wc.isDestroyed()) {
+    wc.send(channel, data);
+  }
+}
+
 function registerAgentIPC() {
   const b = getBridge();
 
-  // agent-chat: 启动 Agent 对话 (流式事件)
+  // Event type mapping: server event → IPC channel
+  const EVENT_MAP = {
+    chunk: 'agent-chunk',
+    reasoning_chunk: 'agent-reasoning-chunk',
+    agent_action: 'agent-action',
+    agent_observation: 'agent-observation',
+    done: 'agent-done',
+    error: 'agent-error',
+    tool_approval_request: 'agent-tool-approval-request',
+    memory_updated: 'agent-memory-updated',
+    coordinator_start: 'coordinator-start',
+    coordinator_info: 'coordinator-info',
+    coordinator_done: 'coordinator-done',
+    coordinator_error: 'coordinator-error',
+    coordinator_review: 'coordinator-review',
+    plan_ready: 'plan-ready',
+    expert_thought: 'expert-thought',
+    expert_reasoning: 'expert-reasoning',
+    expert_action: 'expert-action',
+    expert_observation: 'expert-observation',
+    expert_chunk: 'expert-chunk',
+    expert_done: 'expert-done',
+    expert_error: 'expert-error',
+    security_confirm_required: 'security-confirm-required',
+  };
+
+  // agent-chat: 单 Agent 对话
   ipcMain.handle('agent-chat', async (event, { config, messages, conversationId }) => {
     const wc = event.sender;
-    console.log('[agent-ipc] agent-chat 请求, provider:', config.provider);
+    console.log('[agent-ipc] agent-chat request, provider:', config.provider);
+
+    const unsubs = [];
 
     try {
       await ensureAgentReady();
 
-      // 监听 Python 事件,转发到渲染进程
-      const unsubs = [];
-      const eventMap = {
-        'agent_thought': 'agent-thought',
-        'agent_action': 'agent-action',
-        'agent_observation': 'agent-observation',
-        'chunk': 'agent-chunk',
-        'done': 'agent-done',
-        'error': 'agent-error',
-        'tool_approval_request': 'agent-tool-approval-request',
-        'memory_updated': 'agent-memory-updated',
-      };
-
-      for (const [pyEvent, ipcEvent] of Object.entries(eventMap)) {
-        const unsub = b.on(pyEvent, (data) => {
-          wc.send(ipcEvent, data);
+      // Subscribe to server events and forward to renderer
+      for (const [serverEvent, ipcChannel] of Object.entries(EVENT_MAP)) {
+        const unsub = b.on(serverEvent, (data) => {
+          safeSend(wc, ipcChannel, data);
         });
         unsubs.push(unsub);
       }
 
-      // 发送请求到 Python
-      const result = await b.sendRequest('agent_chat', {
-        config,
-        messages,
-        conversation_id: conversationId || 'default',
+      // Send request to server (AFTER registering listeners)
+      const requestId = `req-${Date.now()}`;
+      console.log('[agent-ipc] agent-chat START:', config.provider, config.model, 'msgs:', messages.length);
+
+      const t0 = Date.now();
+      const result = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          reject(new Error('Agent 请求超时 (120s)'));
+        }, 120_000);
+
+        const doneUnsub = b.on('done', (data) => {
+          clearTimeout(timer);
+          doneUnsub();
+          errorUnsub();
+          resolve(data);
+        });
+
+        const errorUnsub = b.on('error', (data) => {
+          clearTimeout(timer);
+          doneUnsub();
+          errorUnsub();
+          reject(new Error(data?.data?.content || data?.content || 'Agent 执行失败'));
+        });
+
+        b.send({
+          type: 'agent_chat',
+          request_id: requestId,
+          config,
+          messages,
+          conversation_id: conversationId || 'default',
+        });
       });
 
-      // 清理事件监听
-      for (const unsub of unsubs) unsub();
+      console.log('[agent-ipc] agent-chat DONE in', Date.now() - t0, 'ms');
       return result;
-
     } catch (err) {
       console.error('[agent-ipc] agent-chat 失败:', err);
-      wc.send('agent-error', { content: err.message || String(err) });
-      return { error: err.message || String(err) };
+      safeSend(wc, 'agent-error', { content: err.message });
+      return { error: err.message };
+    } finally {
+      for (const unsub of unsubs) unsub();
     }
   });
 
-  // agent-approve-tool: 工具审批响应
+  // agent-chat-group: 群聊 / 多 Expert 模式
+  ipcMain.handle('agent-chat-group', async (event, { config, messages, conversationId, agentIds, mentionedIds, groupSettings }) => {
+    const wc = event.sender;
+    console.log('[agent-ipc] agent-chat-group request, provider:', config.provider, 'agents:', agentIds?.length);
+
+    const unsubs = [];
+    try {
+      await ensureAgentReady();
+
+      for (const [serverEvent, ipcChannel] of Object.entries(EVENT_MAP)) {
+        const unsub = b.on(serverEvent, (data) => {
+          safeSend(wc, ipcChannel, data);
+        });
+        unsubs.push(unsub);
+      }
+
+      const requestId = `req-group-${Date.now()}`;
+
+      const result = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          reject(new Error('群聊请求超时 (120s)'));
+        }, 120_000);
+
+        const doneUnsub = b.on('coordinator_done', (data) => {
+          clearTimeout(timer);
+          doneUnsub();
+          errorUnsub();
+          resolve(data);
+        });
+        const errorUnsub = b.on('coordinator_error', (data) => {
+          clearTimeout(timer);
+          doneUnsub();
+          errorUnsub();
+          reject(new Error(data?.data?.content || data?.content || '群聊执行失败'));
+        });
+
+        // Send AFTER registering listeners to prevent race condition
+        b.send({
+          type: 'agent_chat_group',
+          request_id: requestId,
+          config,
+          messages,
+          conversation_id: conversationId || 'default',
+          agent_ids: agentIds,
+          mentioned_ids: mentionedIds,
+          group_settings: groupSettings,
+        });
+      });
+
+      return result;
+    } catch (err) {
+      console.error('[agent-ipc] agent-chat-group 失败:', err);
+      safeSend(wc, 'coordinator-error', { content: err.message });
+      return { error: err.message };
+    } finally {
+      for (const unsub of unsubs) unsub();
+    }
+  });
+
+  // agent-approve-tool: 工具审批
   ipcMain.on('agent-approve-tool', (_event, { approvalId, approved }) => {
-    console.log('[agent-ipc] 工具审批:', approvalId, approved);
     if (b.isReady()) {
-      b.approveTool(approvalId, approved);
+      b.send({ type: 'tool_approval', approval_id: approvalId, approved });
     }
   });
 
-  // agent-index-file: 索引文件到 RAG
+  // agent-index-file: 索引文件
   ipcMain.handle('agent-index-file', async (_event, filePath) => {
     try {
       await ensureAgentReady();
-      const result = await b.sendRequest('index_file', { file_path: filePath }, 60000);
-      return result;
+      const requestId = `req-idx-${Date.now()}`;
+      b.send({ type: 'index_file', request_id: requestId, file_path: filePath });
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ error: '超时' }), 60_000);
+        const unsub = b.on('file_indexed', (data) => {
+          clearTimeout(timer); unsub(); resolve(data?.data || data);
+        });
+      });
     } catch (err) {
       return { error: err.message };
     }
   });
 
-  // agent-search-rag: 搜索 RAG 文档
+  // agent-search-rag: RAG 搜索
   ipcMain.handle('agent-search-rag', async (_event, query) => {
     try {
       await ensureAgentReady();
-      const result = await b.sendRequest('search_rag', { query }, 30000);
-      return result;
+      const requestId = `req-rag-${Date.now()}`;
+      b.send({ type: 'search_rag', request_id: requestId, query });
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ results: [] }), 30_000);
+        const unsub = b.on('rag_results', (data) => {
+          clearTimeout(timer); unsub(); resolve(data?.data || data);
+        });
+      });
     } catch (err) {
-      return { error: err.message };
+      return { results: [] };
     }
   });
 
-  // agent-get-memory: 获取记忆数量
+  // agent-get-memory-count
   ipcMain.handle('agent-get-memory-count', async () => {
     try {
       await ensureAgentReady();
-      const result = await b.sendRequest('get_memory_count', {}, 10000);
-      return result;
-    } catch (err) {
+      const requestId = `req-mem-${Date.now()}`;
+      b.send({ type: 'get_memory_count', request_id: requestId });
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ count: 0 }), 10_000);
+        const unsub = b.on('memory_count', (data) => {
+          clearTimeout(timer); unsub(); resolve(data?.data || data);
+        });
+      });
+    } catch {
       return { count: 0 };
     }
   });
 
-  // agent-clear-memory: 清空记忆
+  // agent-clear-memory
   ipcMain.handle('agent-clear-memory', async () => {
     try {
       await ensureAgentReady();
-      return await b.sendRequest('clear_memory', {}, 10000);
+      b.send({ type: 'clear_memory', request_id: `req-clr-${Date.now()}` });
+      return {};
     } catch (err) {
       return { error: err.message };
     }
   });
 
-  // agent-get-indexed-files: 获取已索引文件列表
+  // agent-get-indexed-files
   ipcMain.handle('agent-get-indexed-files', async () => {
     try {
       await ensureAgentReady();
-      return await b.sendRequest('get_indexed_files', {}, 10000);
-    } catch (err) {
+      const requestId = `req-files-${Date.now()}`;
+      b.send({ type: 'get_indexed_files', request_id: requestId });
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ files: [] }), 10_000);
+        const unsub = b.on('indexed_files', (data) => {
+          clearTimeout(timer); unsub(); resolve(data?.data || data);
+        });
+      });
+    } catch {
       return { files: [] };
     }
   });
 
-  // agent-remove-file: 从索引移除文件
+  // agent-remove-file
   ipcMain.handle('agent-remove-file', async (_event, fileName) => {
     try {
       await ensureAgentReady();
-      return await b.sendRequest('remove_file', { file_name: fileName }, 10000);
+      b.send({ type: 'remove_file', request_id: `req-rm-${Date.now()}`, file_name: fileName });
+      return {};
     } catch (err) {
       return { error: err.message };
     }
   });
 
-  // agent-ping: 健康检查
+  // agent-ping
   ipcMain.handle('agent-ping', async () => {
     try {
-      if (!b.isReady()) {
-        await ensureAgentReady();
-      }
-      const result = await b.sendRequest('ping', {}, 5000);
-      return { ready: true, ...result };
+      if (!b.isReady()) await ensureAgentReady();
+      const requestId = `req-ping-${Date.now()}`;
+      b.send({ type: 'ping', request_id: requestId });
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ ready: false }), 5_000);
+        const unsub = b.on('pong', (data) => {
+          clearTimeout(timer); unsub(); resolve({ ready: true, ...(data?.data || data) });
+        });
+      });
     } catch (err) {
       return { ready: false, error: err.message };
     }
   });
 
-  // agent-get-ready: 检查就绪状态 + 自动启动
+  // agent-get-ready
   ipcMain.handle('agent-get-ready', async () => {
     try {
       await ensureAgentReady();
@@ -176,12 +307,120 @@ function registerAgentIPC() {
     }
   });
 
-  console.log('[agent-ipc] IPC 处理器已注册');
+  // ── Agent 管理 ──
+  ipcMain.handle('agent-list-all', async () => {
+    try {
+      await ensureAgentReady();
+      const requestId = `req-aglist-${Date.now()}`;
+      b.send({ type: 'list_agents', request_id: requestId });
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ agents: [] }), 10_000);
+        const unsub = b.on('agent_list', (data) => {
+          clearTimeout(timer); unsub(); resolve(data?.data || data);
+        });
+      });
+    } catch { return { agents: [] }; }
+  });
+
+  ipcMain.handle('agent-create-new', async (_event, { name, character, config }) => {
+    try {
+      await ensureAgentReady();
+      const requestId = `req-agcreate-${Date.now()}`;
+      b.send({ type: 'create_agent', request_id: requestId, name, character: character || 'glassesDog', config: config || {} });
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ error: '超时' }), 30_000);
+        const unsub = b.on('agent_created', (data) => {
+          clearTimeout(timer); unsub(); resolve(data?.data || data);
+        });
+      });
+    } catch (err) { return { error: err.message }; }
+  });
+
+  ipcMain.handle('agent-create-with-personality', async (_event, { name, identity, ishiki }) => {
+    try {
+      await ensureAgentReady();
+      const requestId = `req-agcreatep-${Date.now()}`;
+      b.send({ type: 'create_agent', request_id: requestId, name, character: 'glassesDog', config: {}, identity, ishiki });
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ error: '超时' }), 30_000);
+        const unsub = b.on('agent_created', (data) => {
+          clearTimeout(timer); unsub(); resolve(data?.data || data);
+        });
+      });
+    } catch (err) { return { error: err.message }; }
+  });
+
+  // agent-confirm-plan: 用户确认/取消协作计划
+  ipcMain.handle('agent-confirm-plan', async (_event, { convId, confirmed }) => {
+    try {
+      await ensureAgentReady();
+      b.send({ type: 'confirm_plan', conv_id: convId, confirmed });
+      return { ok: true };
+    } catch (err) { return { error: err.message }; }
+  });
+
+  // agent-list-tools: 获取可用工具列表
+  ipcMain.handle('agent-list-tools', async () => {
+    try {
+      await ensureAgentReady();
+      const requestId = `req-tools-${Date.now()}`;
+      b.send({ type: 'list_tools', request_id: requestId });
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ tools: [] }), 10_000);
+        const unsub = b.on('tool_list', (data) => {
+          clearTimeout(timer); unsub(); resolve(data?.data || data);
+        });
+      });
+    } catch { return { tools: [] }; }
+  });
+
+  ipcMain.handle('agent-switch-to', async (_event, { agent_id }) => {
+    try {
+      await ensureAgentReady();
+      const requestId = `req-agswitch-${Date.now()}`;
+      b.send({ type: 'switch_agent', request_id: requestId, agent_id });
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ error: '超时' }), 10_000);
+        const unsub = b.on('agent_switched', (data) => {
+          clearTimeout(timer); unsub(); resolve(data?.data || data);
+        });
+      });
+    } catch (err) { return { error: err.message }; }
+  });
+
+  ipcMain.handle('agent-delete-one', async (_event, { agent_id }) => {
+    try {
+      await ensureAgentReady();
+      const requestId = `req-agdelete-${Date.now()}`;
+      b.send({ type: 'delete_agent', request_id: requestId, agent_id });
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ deleted: false }), 10_000);
+        const unsub = b.on('agent_deleted', (data) => {
+          clearTimeout(timer); unsub(); resolve(data?.data || data);
+        });
+      });
+    } catch (err) { return { error: err.message }; }
+  });
+
+  ipcMain.handle('agent-update-personality', async (_event, { identity, ishiki }) => {
+    try {
+      await ensureAgentReady();
+      b.send({ type: 'update_agent_personality', identity, ishiki });
+      return { ok: true };
+    } catch (err) { return { error: err.message }; }
+  });
+
+  ipcMain.handle('agent-toggle-shared-memory', async (_event, { enabled }) => {
+    try {
+      await ensureAgentReady();
+      b.send({ type: 'toggle_shared_memory', enabled });
+      return { ok: true };
+    } catch (err) { return { error: err.message }; }
+  });
+
+  console.log('[agent-ipc] IPC 处理器已注册 (Node.js Server + WebSocket)');
 }
 
-/**
- * 停止 Agent 服务
- */
 function stopAgent() {
   if (bridge) {
     bridge.stop();

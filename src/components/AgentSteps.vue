@@ -1,5 +1,5 @@
 <template>
-  <div class="agent-steps" v-if="steps.length > 0">
+  <div ref="container" class="agent-steps" v-if="steps.length > 0">
     <div class="agent-steps-inner">
       <div v-for="(step, i) in steps" :key="i"
         class="step-item" :class="`step-${step.type}`">
@@ -50,10 +50,28 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { watch, nextTick, ref } from 'vue'
+import gsap from 'gsap'
 
 const props = defineProps({
   steps: { type: Array, default: () => [] },
+})
+
+const container = ref(null)
+
+watch(() => props.steps.length, () => {
+  nextTick(() => {
+    if (!container.value) return
+    const items = container.value.querySelectorAll('.step-item')
+    const lastItem = items[items.length - 1]
+    if (!lastItem) return
+    gsap.from(lastItem, {
+      x: -8,
+      opacity: 0,
+      duration: 0.25,
+      ease: 'power2.out',
+    })
+  })
 })
 
 function fmtInput(input) {
@@ -82,13 +100,8 @@ function fmtInput(input) {
 
 .step-item {
   font-size: 12px;
-  animation: stepIn 0.25s ease-out;
 }
 
-@keyframes stepIn {
-  from { opacity: 0; transform: translateX(-6px); }
-  to { opacity: 1; transform: translateX(0); }
-}
 
 .step-thought {
   display: flex;

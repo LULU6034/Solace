@@ -42,7 +42,7 @@ async function runChat(webContents, config, messages) {
   const client = createClient(config);
   const systemMsg = messages.find(m => m.role === 'system');
   const chatMessages = messages.filter(m => m.role !== 'system');
-  const system = systemMsg?.content || '你是一个可爱的桌面宠物。回复简洁有活力。';
+  const system = systemMsg?.content || '你是一个桌面上的智能助手。回复简洁高效。';
 
   if (config.provider === 'claude') {
     const stream = await client.messages.stream({

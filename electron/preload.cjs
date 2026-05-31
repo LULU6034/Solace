@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   feedFile: (filePath) => ipcRenderer.invoke('feed-file', filePath),
   readFileContent: (filePath) => ipcRenderer.invoke('read-file-content', filePath),
   notifyWorking: (isWorking) => ipcRenderer.invoke('notify-working', isWorking),
+  pickAvatar: () => ipcRenderer.invoke('pick-avatar'),
 
   // 配置持久化（主进程写文件）
   loadConfig: () => ipcRenderer.invoke('load-config'),
@@ -19,6 +20,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Agent 模式 — Python LangChain 服务
   agentChat: (config, messages, conversationId) =>
     ipcRenderer.invoke('agent-chat', { config, messages, conversationId }),
+  agentChatGroup: (config, messages, conversationId, agentIds, mentionedIds, groupSettings) =>
+    ipcRenderer.invoke('agent-chat-group', { config, messages, conversationId, agentIds, mentionedIds, groupSettings }),
   agentApproveTool: (approvalId, approved) =>
     ipcRenderer.send('agent-approve-tool', { approvalId, approved }),
   agentIndexFile: (filePath) =>
@@ -37,6 +40,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('agent-ping'),
   agentGetReady: () =>
     ipcRenderer.invoke('agent-get-ready'),
+  // Agent 管理
+  agentList: () =>
+    ipcRenderer.invoke('agent-list-all'),
+  agentCreate: (name, character, config) =>
+    ipcRenderer.invoke('agent-create-new', { name, character, config }),
+  agentCreateWithPersonality: (name, identity, ishiki) =>
+    ipcRenderer.invoke('agent-create-with-personality', { name, identity, ishiki }),
+  agentListTools: () =>
+    ipcRenderer.invoke('agent-list-tools'),
+  agentConfirmPlan: (convId, confirmed) =>
+    ipcRenderer.invoke('agent-confirm-plan', { convId, confirmed }),
+  agentSwitch: (agentId) =>
+    ipcRenderer.invoke('agent-switch-to', { agent_id: agentId }),
+  agentDelete: (agentId) =>
+    ipcRenderer.invoke('agent-delete-one', { agent_id: agentId }),
+  agentUpdatePersonality: (identity, ishiki) =>
+    ipcRenderer.invoke('agent-update-personality', { identity, ishiki }),
+  agentToggleSharedMemory: (enabled) =>
+    ipcRenderer.invoke('agent-toggle-shared-memory', { enabled }),
 
   onFileFed: (cb) => {
     const listener = (_event, data) => cb(data)
@@ -80,6 +102,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('agent-chunk', listener)
     return () => ipcRenderer.removeListener('agent-chunk', listener)
   },
+  onAgentReasoningChunk: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('agent-reasoning-chunk', listener)
+    return () => ipcRenderer.removeListener('agent-reasoning-chunk', listener)
+  },
   onAgentDone: (cb) => {
     const listener = (_event, data) => cb(data)
     ipcRenderer.on('agent-done', listener)
@@ -99,5 +126,77 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const listener = (_event, data) => cb(data)
     ipcRenderer.on('agent-memory-updated', listener)
     return () => ipcRenderer.removeListener('agent-memory-updated', listener)
+  },
+
+  // Coordinator / Group Chat 事件
+  onCoordinatorStart: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('coordinator-start', listener)
+    return () => ipcRenderer.removeListener('coordinator-start', listener)
+  },
+  onCoordinatorInfo: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('coordinator-info', listener)
+    return () => ipcRenderer.removeListener('coordinator-info', listener)
+  },
+  onCoordinatorDone: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('coordinator-done', listener)
+    return () => ipcRenderer.removeListener('coordinator-done', listener)
+  },
+  onCoordinatorError: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('coordinator-error', listener)
+    return () => ipcRenderer.removeListener('coordinator-error', listener)
+  },
+  onCoordinatorReview: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('coordinator-review', listener)
+    return () => ipcRenderer.removeListener('coordinator-review', listener)
+  },
+  onExpertThought: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('expert-thought', listener)
+    return () => ipcRenderer.removeListener('expert-thought', listener)
+  },
+  onExpertReasoning: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('expert-reasoning', listener)
+    return () => ipcRenderer.removeListener('expert-reasoning', listener)
+  },
+  onExpertAction: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('expert-action', listener)
+    return () => ipcRenderer.removeListener('expert-action', listener)
+  },
+  onExpertObservation: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('expert-observation', listener)
+    return () => ipcRenderer.removeListener('expert-observation', listener)
+  },
+  onExpertChunk: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('expert-chunk', listener)
+    return () => ipcRenderer.removeListener('expert-chunk', listener)
+  },
+  onExpertDone: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('expert-done', listener)
+    return () => ipcRenderer.removeListener('expert-done', listener)
+  },
+  onExpertError: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('expert-error', listener)
+    return () => ipcRenderer.removeListener('expert-error', listener)
+  },
+  onPlanReady: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('plan-ready', listener)
+    return () => ipcRenderer.removeListener('plan-ready', listener)
+  },
+  onSecurityConfirmRequired: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('security-confirm-required', listener)
+    return () => ipcRenderer.removeListener('security-confirm-required', listener)
   },
 });

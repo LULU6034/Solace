@@ -7,7 +7,7 @@
         <div v-for="cat in categories" :key="cat.id"
           class="settings-cat-btn" :class="{ active: activeCat === cat.id }"
           :data-cat="cat.id">
-          <span class="cat-icon" :style="{ color: cat.color }">{{ cat.icon }}</span>
+          <span class="cat-icon" :style="{ color: cat.color }"><component :is="cat.icon" :size="18" /></span>
           <span class="cat-label">{{ cat.label }}</span>
         </div>
       </div>
@@ -18,84 +18,43 @@
       <div class="settings-detail">
         <!-- 用户 -->
         <div v-if="activeCat === 'profile'" class="cat-content">
-          <h3 class="cat-title">用户设置</h3>
-
-          <!-- 头像 -->
-          <div class="setting-group">
-            <label class="setting-label">头像</label>
-            <div class="avatar-row">
-              <div class="avatar-current" :style="userAvatar.startsWith('data:') ? {} : { background: avatarColor + '18' }">
-                <img v-if="userAvatar.startsWith('data:')" :src="userAvatar" class="avatar-img" />
-                <span v-else>{{ userAvatar }}</span>
+          <div class="profile-hero">
+            <div class="avatar-circle" @click="pickAvatar" title="点击更换头像">
+              <img v-if="userAvatar.startsWith('data:')" :src="userAvatar" class="avatar-img" />
+              <div v-else class="avatar-geo" :style="{ background: avatarColor }">
+                <svg viewBox="0 0 40 40"><path d="M12 28 Q20 8 28 28" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" stroke-linecap="round"/><path d="M8 22 Q20 16 32 22" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="1.5" stroke-linecap="round"/><circle cx="20" cy="18" r="3" fill="rgba(255,255,255,0.3)"/></svg>
               </div>
-              <div class="avatar-actions">
-                <span class="avatar-hint">聊天中你的消息头像</span>
-                <button class="avatar-upload-btn" @click="pickAvatar">上传图片</button>
-              </div>
+              <div class="avatar-overlay">📷</div>
             </div>
-            <div class="avatar-grid">
-              <button v-for="emoji in avatarOptions" :key="emoji"
-                class="avatar-option" :class="{ active: userAvatar === emoji }"
-                @click="userAvatar = emoji">{{ emoji }}</button>
-            </div>
+            <div class="profile-name">{{ userNickname || '你' }}</div>
+            <button class="profile-upload-btn" @click="pickAvatar">更换头像</button>
           </div>
 
-          <!-- 称呼设置 -->
           <div class="setting-group">
-            <label class="setting-label">对我的称呼</label>
-            <input v-model="userNickname" class="setting-input"
-              placeholder="让 Agent 这样叫你（如：小明、老板、亲爱的）"
-              @input="onNicknameInput" />
+            <label class="setting-label">称呼</label>
+            <input v-model="userNickname" class="setting-input" placeholder="让 AI 这样叫你" @input="onNicknameInput" />
             <span v-if="nicknameHint" class="nickname-hint" :class="{ error: nicknameError }">{{ nicknameHint }}</span>
           </div>
 
-          <!-- 用户画像（AI 学习） -->
-          <h3 class="cat-title" style="margin-top:20px">AI 画像</h3>
-          <p class="cat-desc">从对话中自动学习</p>
-
-          <div class="profile-card" v-if="userProfile.name || userProfile.city || userProfile.occupation">
-            <div class="profile-item" v-if="userProfile.name">
-              <span class="profile-key">名字</span>
-              <span class="profile-value">{{ userProfile.name }}</span>
-            </div>
-            <div class="profile-item" v-if="userProfile.city">
-              <span class="profile-key">城市</span>
-              <span class="profile-value">{{ userProfile.city }}</span>
-            </div>
-            <div class="profile-item" v-if="userProfile.occupation">
-              <span class="profile-key">职业</span>
-              <span class="profile-value">{{ userProfile.occupation }}</span>
-            </div>
-            <div class="profile-item" v-if="userProfile.interests?.length">
-              <span class="profile-key">兴趣</span>
-              <span class="profile-value">{{ userProfile.interests.join('、') }}</span>
-            </div>
-            <div class="profile-item" v-if="userProfile.skills?.length">
-              <span class="profile-key">技能</span>
-              <span class="profile-value">{{ userProfile.skills.join('、') }}</span>
-            </div>
+          <div v-if="userProfile.name || userProfile.city || userProfile.occupation" class="profile-card">
+            <div class="profile-item" v-if="userProfile.name"><span class="profile-key">名字</span><span class="profile-value">{{ userProfile.name }}</span></div>
+            <div class="profile-item" v-if="userProfile.city"><span class="profile-key">城市</span><span class="profile-value">{{ userProfile.city }}</span></div>
+            <div class="profile-item" v-if="userProfile.occupation"><span class="profile-key">职业</span><span class="profile-value">{{ userProfile.occupation }}</span></div>
           </div>
-          <p v-else class="profile-empty">暂无，多聊几次 AI 就会自动了解你</p>
 
-          <div class="setting-group" style="margin-top:16px">
-            <label class="setting-label">记忆数据</label>
+          <div class="setting-group">
             <div class="memory-stats">
-              <span class="mem-stat">🧠 {{ memoryCount }} 条</span>
-              <button class="mem-clear-btn" @click="clearMemory" :disabled="memoryCount === 0">清空全部</button>
+              <span class="mem-stat">记忆 {{ memoryCount }} 条</span>
+              <button class="mem-clear-btn" @click="clearMemory" :disabled="memoryCount === 0">清空</button>
             </div>
           </div>
         </div>
 
         <!-- 服务商 -->
         <div v-if="activeCat === 'backend'" class="cat-content">
-          <h3 class="cat-title">服务商</h3>
-
-          <!-- 服务商卡片选择 -->
           <div class="provider-cards">
-            <button v-for="p in providers" :key="p.id"
-              class="provider-card" :class="{ active: provider === p.id }"
-              @click="provider = p.id">
-              <span class="provider-card-icon" :style="{ background: p.color + '15' }">{{ p.icon }}</span>
+            <button v-for="p in providers" :key="p.id" class="provider-card" :class="{ active: provider === p.id }" @click="provider = p.id">
+              <span class="provider-card-icon" :style="{ background: p.color + '20' }">{{ p.icon }}</span>
               <div class="provider-card-text">
                 <span class="provider-card-name">{{ p.name }}</span>
                 <span class="provider-card-desc">{{ p.desc }}</span>
@@ -104,183 +63,114 @@
             </button>
           </div>
 
-          <!-- 通用 API Key -->
           <div class="setting-group">
-            <label class="setting-label">API Key</label>
-            <input v-model="apiKey" type="password" class="setting-input"
-              placeholder="输入 API Key..." />
+            <input v-model="apiKey" type="password" class="setting-input" placeholder="API Key" />
+          </div>
+          <div class="setting-group">
+            <input v-model="visionApiKey" type="password" class="setting-input" placeholder="视觉识别 Key（阿里云百炼，可选）" />
           </div>
 
+          <div v-if="provider === 'claude'" class="model-chips">
+            <button v-for="m in claudeModels" :key="m.value" class="model-chip" :class="{ active: claudeModel === m.value }" @click="claudeModel = m.value">{{ m.label }}</button>
+          </div>
+          <div v-if="provider === 'deepseek'" class="model-chips">
+            <button v-for="m in deepseekModels" :key="m.value" class="model-chip" :class="{ active: deepseekModel === m.value }" @click="deepseekModel = m.value">{{ m.label }}</button>
+          </div>
+          <div v-if="provider === 'openai'" class="provider-config">
+            <input v-model="openaiBaseUrl" class="setting-input" placeholder="API 地址" />
+            <input v-model="openaiModel" class="setting-input" placeholder="模型名称" />
+          </div>
 
-          <!-- Claude 模型选择 -->
-          <Transition name="config-slide">
-            <div v-if="provider === 'claude'" class="provider-config">
-              <div class="setting-group">
-                <label class="setting-label">模型</label>
-                <div class="model-chips">
-                  <button v-for="m in claudeModels" :key="m.value"
-                    class="model-chip" :class="{ active: claudeModel === m.value }"
-                    @click="claudeModel = m.value">{{ m.label }}</button>
-                </div>
-              </div>
-            </div>
-          </Transition>
-
-          <!-- DeepSeek 模型选择 -->
-          <Transition name="config-slide">
-            <div v-if="provider === 'deepseek'" class="provider-config">
-              <div class="setting-group">
-                <label class="setting-label">模型</label>
-                <div class="model-chips">
-                  <button v-for="m in deepseekModels" :key="m.value"
-                    class="model-chip" :class="{ active: deepseekModel === m.value }"
-                    @click="deepseekModel = m.value">{{ m.label }}</button>
-                </div>
-              </div>
-            </div>
-          </Transition>
-
-          <!-- OpenAI 兼容配置 -->
-          <Transition name="config-slide">
-            <div v-if="provider === 'openai'" class="provider-config">
-              <div class="setting-group">
-                <label class="setting-label">API 地址</label>
-                <input v-model="openaiBaseUrl" class="setting-input"
-                  placeholder="https://api.openai.com/v1" />
-              </div>
-              <div class="setting-group">
-                <label class="setting-label">模型名称</label>
-                <input v-model="openaiModel" class="setting-input"
-                  placeholder="gpt-4o" />
-              </div>
-            </div>
-          </Transition>
-
-          <p v-if="error" class="setting-error">{{ error }}</p>
-
-          <!-- Agent 状态 -->
           <div class="agent-status">
             <div class="agent-status-header">
               <span class="agent-status-dot" :class="{ online: agentReady }" />
-              <span class="agent-status-label">Agent 引擎</span>
-              <span v-if="agentReady" class="agent-status-text">Python LangChain 就绪</span>
-              <span v-else-if="agentChecking" class="agent-status-text">检查中...</span>
-              <span v-else class="agent-status-text offline">待首次对话自动启动</span>
-            </div>
-            <div v-if="agentReady" class="agent-stats">
-              <span class="agent-stat">🧠 记忆: {{ memoryCount }} 条</span>
-              <span class="agent-stat">📄 文档: {{ indexedCount }} 个</span>
-            </div>
-            <div v-if="agentReady" class="agent-actions">
-              <button class="agent-action-btn" @click="clearMemory">清空记忆</button>
+              <span class="agent-status-label">Agent</span>
+              <span v-if="agentReady" class="agent-status-text">就绪</span>
+              <span v-else-if="agentChecking" class="agent-status-text">检查中</span>
+              <span v-else class="agent-status-text offline">待启动</span>
             </div>
           </div>
 
+          <p v-if="error" class="setting-error">{{ error }}</p>
+
           <div class="setting-actions">
-            <button class="setting-btn primary" :disabled="!apiKey || saving" @click="save">
-              {{ saving ? '连接中...' : '保存并连接' }}
-            </button>
-            <button class="setting-btn secondary" @click="testConn">测试连接</button>
+            <button class="setting-btn primary" :disabled="!apiKey || saving" @click="save">{{ saving ? '连接中...' : '保存' }}</button>
+            <button class="setting-btn secondary" @click="testConn">测试</button>
           </div>
         </div>
 
         <!-- 助手 -->
         <div v-if="activeCat === 'pet'" class="cat-content">
-          <h3 class="cat-title">回复风格</h3>
-          <p class="cat-desc">选择 Agent 的语气和性格</p>
+          <!-- 快速风格预设 -->
+          <div class="sect-label">快速风格</div>
+          <div class="style-chips">
+            <button v-for="p in personalityPresets" :key="p.id" class="style-chip" @click="applyPreset(p)">{{ p.icon }} {{ p.name }}</button>
+          </div>
 
-          <div class="personality-grid">
-            <button v-for="p in personalities" :key="p.id"
-              class="personality-card" :class="{ active: agentPersonality === p.id }"
-              @click="agentPersonality = p.id">
-              <span class="personality-icon">{{ p.icon }}</span>
-              <div class="personality-text">
-                <span class="personality-name">{{ p.name }}</span>
-                <span class="personality-desc">{{ p.desc }}</span>
+          <!-- 身份描述 -->
+          <div class="sect-label">身份描述 <small style="color:var(--text-muted)">告诉 AI 它是什么角色</small></div>
+          <textarea v-model="editIdentity" class="setting-textarea" rows="3" placeholder="我是彩铅，一只戴眼镜的博学小狗..."></textarea>
+
+          <!-- 行为风格 -->
+          <div class="sect-label">行为风格 <small style="color:var(--text-muted)">定义 AI 的说话方式</small></div>
+          <textarea v-model="editIshiki" class="setting-textarea" rows="4" placeholder="用学者的口吻说话，偶尔用汪汪开头..."></textarea>
+
+          <button class="setting-btn primary" @click="savePersonality" :disabled="savingPersonality">保存人格设定</button>
+          <span v-if="saveMsg" class="save-msg">{{ saveMsg }}</span>
+
+          <!-- Agent 管理 -->
+          <div class="sect-label" style="margin-top:12px">角色管理</div>
+          <div class="agent-list">
+            <div v-for="a in agentList" :key="a.id" class="agent-row" :class="{ active: a.isActive }">
+              <span class="agent-row-icon">{{ a.icon || '🐶' }}</span>
+              <div class="agent-row-info">
+                <span class="agent-row-name">
+                  {{ a.name }}
+                  <span v-if="a.isBuiltin" class="agent-row-badge">内置</span>
+                </span>
+                <span class="agent-row-meta">{{ a.config?.provider || 'claude' }} · {{ a.memoryCount || 0 }} 条记忆</span>
               </div>
-              <span v-if="agentPersonality === p.id" class="personality-check">✓</span>
+              <button v-if="!a.isActive" class="agent-row-btn" @click="switchAgent(a.id)">切换</button>
+              <button v-if="!a.isBuiltin" class="agent-row-del" @click="deleteAgent(a.id)" title="删除">✕</button>
+            </div>
+          </div>
+          <div class="agent-create" v-if="showAgentCreate">
+            <input v-model="newAgentName" class="setting-input" placeholder="角色名称" style="width:140px" />
+            <select v-model="newAgentPreset" class="setting-select" style="width:130px">
+              <option value="">默认风格</option>
+              <option v-for="p in personalityPresets" :key="p.id" :value="p.id">{{ p.icon }} {{ p.name }}</option>
+            </select>
+            <button class="setting-btn primary" @click="createAgent" :disabled="!newAgentName.trim()">创建</button>
+            <button class="setting-btn secondary" @click="showAgentCreate = false">取消</button>
+          </div>
+          <button v-else class="agent-add-btn" @click="showAgentCreate = true">+ 新建角色</button>
+
+          <!-- 隐私 -->
+          <div class="sect-label" style="margin-top:14px">隐私</div>
+          <label class="setting-row">
+            <span class="setting-label">共享记忆<br><small style="color:var(--text-muted)">开启后所有角色共用同一份记忆</small></span>
+            <input v-model="sharedMemory" type="checkbox" class="setting-toggle" @change="toggleSharedMemory" />
+          </label>
+
+          <div class="sect-label" style="margin-top:8px">桌宠</div>
+          <div class="pet-choices">
+            <button v-for="p in petOptions" :key="p.id" class="pet-choice-btn" :class="{ active: defaultPet === p.id }" @click="defaultPet = p.id">
+              <span class="pet-choice-icon">{{ p.icon }}</span>
+              <span class="pet-choice-name">{{ p.name }}</span>
             </button>
-          </div>
-
-          <!-- 自定义性格 -->
-          <div v-if="customPersonalities.length > 0" class="personality-grid" style="margin-top:8px">
-            <button v-for="(p, i) in customPersonalities" :key="'custom-'+i"
-              class="personality-card" :class="{ active: agentPersonality === 'custom-'+i }"
-              @click="agentPersonality = 'custom-'+i">
-              <span class="personality-icon">✎</span>
-              <div class="personality-text">
-                <span class="personality-name">{{ p.name }}</span>
-                <span class="personality-desc">{{ p.prompt.slice(0, 40) }}...</span>
-              </div>
-              <button class="personality-del" @click.stop="removeCustom(i)" title="删除">✕</button>
-            </button>
-          </div>
-
-          <button class="personality-add-btn" v-if="customPersonalities.length < 3"
-            @click="showCustomForm = !showCustomForm">
-            + 添加自定义性格 ({{ customPersonalities.length }}/3)
-          </button>
-
-          <div v-if="showCustomForm" class="custom-form">
-            <input v-model="customName" class="setting-input" placeholder="性格名称 (如：霸道总裁)" style="margin-bottom:6px" />
-            <textarea v-model="customPrompt" class="setting-textarea"
-              placeholder="提示词 (如：你是 Sonder，一位..."
-              rows="4"></textarea>
-            <div class="custom-form-hint">
-              <b>怎么写：</b><br/>
-              1. 你是谁 → "你是 Sonder，一位[身份/角色]"<br/>
-              2. 语气特征 → "你说话[温柔/严厉/幽默/高冷/...]"<br/>
-              3. 行为规则 → "常用[口头禅]"、"从不[某事]"、"总是先[做什么]"<br/>
-              4. 加分项 → 给一个对话示例让 AI 模仿<br/><br/>
-              <b>参考示例：</b><br/>
-              "你是 Sonder，一位温柔的大姐姐。你说话耐心体贴，总是先安慰再给建议。常用'没事的'、'慢慢来'。用户犯错时从不说教，而是说'我们可以一起想办法'。比如用户说'我今天好累'，你回'辛苦啦~要不要先休息五分钟？我在这儿陪你。'"<br/><br/>
-              <b>简洁版示例：</b><br/>
-              "你是 Sonder，一位毒舌损友。表面笑嘻嘻，句句扎心。常用'哦？是吗？'、'不意外'。最后总加一句'开玩笑的啦'。"
-            </div>
-            <div class="custom-form-actions">
-              <button class="setting-btn primary" @click="addCustom" :disabled="!customName.trim() || !customPrompt.trim()">保存</button>
-              <button class="setting-btn secondary" @click="showCustomForm = false">取消</button>
-            </div>
-          </div>
-
-          <h3 class="cat-title" style="margin-top:20px">桌宠</h3>
-          <p class="cat-desc">桌面上的宠物伙伴</p>
-
-          <div class="setting-group">
-            <label class="setting-label">默认宠物</label>
-            <div class="pet-choices">
-              <button v-for="p in petOptions" :key="p.id"
-                class="pet-choice-btn" :class="{ active: defaultPet === p.id }"
-                @click="defaultPet = p.id">
-                <span class="pet-choice-icon">{{ p.icon }}</span>
-                <span class="pet-choice-name">{{ p.name }}</span>
-              </button>
-            </div>
-          </div>
-
-          <div class="setting-group" style="margin-top:12px">
-            <label class="setting-label">群聊角色</label>
-            <div class="role-stats">
-              <span class="role-stat">👥 {{ expertCount }} 个角色可用</span>
-              <span class="role-stat">🌐 {{ activeExpertCount }} 个在群聊中</span>
-            </div>
-            <p class="setting-hint">在侧边菜单「角色」中管理群聊成员</p>
           </div>
 
           <div class="setting-group">
             <label class="setting-row">
-              <span class="setting-label">允许桌面行走</span>
+              <span class="setting-label">桌面行走</span>
               <input v-model="walkEnabled" type="checkbox" class="setting-toggle" />
             </label>
-            <p class="setting-hint">宠物自动在桌面上随机漫步</p>
           </div>
-
           <div class="setting-group">
             <label class="setting-row">
               <span class="setting-label">拖放喂食</span>
               <input v-model="feedEnabled" type="checkbox" class="setting-toggle" />
             </label>
-            <p class="setting-hint">拖文件到宠物可喂食并发送到对话</p>
           </div>
         </div>
 
@@ -328,11 +218,11 @@
         <div v-if="activeCat === 'about'" class="cat-content">
           <h3 class="cat-title">关于</h3>
 
-          <div class="about-icon">🐶</div>
-          <div class="about-app-name">AI 桌面宠物</div>
+          <div class="about-icon">▮</div>
+          <div class="about-app-name">案</div>
           <div class="about-version">v1.0.0</div>
           <p class="about-desc">
-            一个可爱的桌面宠物应用。支持多家服务商、拖放文件喂食、自动桌面漫步。
+            桌面上的智能助手。支持多家 LLM、多角色协作、拖放文件分析、记忆系统。
           </p>
 
           <div class="about-section">
@@ -361,19 +251,21 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 
 const emit = defineEmits(['done'])
 
 // 分类
+import { User, Zap, Bot, Settings, Info } from 'lucide-vue-next'
+
 const categories = [
-  { id: 'profile', icon: '👤', label: '用户',   color: '#5C4A32' },
-  { id: 'backend', icon: '⚡', label: '服务商', color: '#007aff' },
-  { id: 'pet',     icon: '🤖', label: '助手',   color: '#ff6b8a' },
-  { id: 'system',  icon: '⚙', label: '系统',   color: '#8e8e93' },
-  { id: 'about',   icon: 'ℹ', label: '关于',   color: '#8e8e93' },
+  { id: 'profile', icon: User,  label: '用户',   color: '#6366F1' },
+  { id: 'backend', icon: Zap,   label: '服务商', color: '#3B82F6' },
+  { id: 'pet',     icon: Bot,   label: '助手',   color: '#EC4899' },
+  { id: 'system',  icon: Settings, label: '系统', color: '#6B7280' },
+  { id: 'about',   icon: Info,  label: '关于',   color: '#6B7280' },
 ]
-const activeCat = ref('backend')
+const activeCat = ref('profile')
 
 function onSidebarClick(e) {
   e.stopPropagation()
@@ -385,6 +277,7 @@ function onSidebarClick(e) {
 
 // 预加载配置文件（主进程文件）
 const apiKey = ref('')
+const visionApiKey = ref('')
 const provider = ref('claude')
 
 // 异步加载已保存配置
@@ -392,6 +285,7 @@ const provider = ref('claude')
   const cfg = await window.electronAPI?.loadConfig()
   if (cfg) {
     apiKey.value = cfg.apiKey || ''
+    visionApiKey.value = cfg.visionApiKey || ''
     provider.value = cfg.provider || 'claude'
     claudeModel.value = (cfg.provider === 'claude' && cfg.model) ? cfg.model : 'claude-sonnet-4-20250506'
     deepseekModel.value = (cfg.provider === 'deepseek' && cfg.model) ? cfg.model : 'deepseek-chat'
@@ -415,9 +309,8 @@ const saving = ref(false)
 const error = ref(null)
 
 // 用户设置: 头像 + 称呼
-const avatarOptions = ['🐱','🐶','🐼','🐨','🦊','🐰','🐸','🐵','🐙','🦄','🐳','🐲','🌟','💎','🎨','🎮']
-const userAvatar = ref(localStorage.getItem('user-avatar') || '🐱')
-const avatarColor = ref(localStorage.getItem('user-avatar-color') || '#B7A48E')
+const userAvatar = ref(localStorage.getItem('user-avatar') || '')
+const avatarColor = ref(localStorage.getItem('user-avatar-color') || '#6366F1')
 const userNickname = ref(localStorage.getItem('user-nickname') || '')
 const nicknameHint = ref('')
 const nicknameError = ref(false)
@@ -436,7 +329,7 @@ async function pickAvatar() {
   if (dataUrl) {
     userAvatar.value = dataUrl
     // 图片上传时同步设一个颜色 (从图片中提取, 默认暖色)
-    avatarColor.value = '#B7A48E'
+    avatarColor.value = '#6366F1'
   }
 }
 
@@ -534,55 +427,120 @@ const deepseekModels = [
   { value: 'deepseek-v4-pro',   label: '🕯️ 深度' },
 ]
 
-// Agent 性格
-const personalities = [
-  { id: 'default', icon: '✦', name: '默认', desc: '自然友好，该活泼时活泼，该正经时正经' },
-  { id: 'gentle', icon: '♡', name: '温柔可靠', desc: '温和包容，永远不批评，会主动关心你的感受' },
-  { id: 'lively', icon: '✿', name: '活泼小精灵', desc: '元气满满，爱用颜文字和语气词，蹦蹦跳跳' },
-  { id: 'grumpy', icon: '⚡', name: '火爆急性子', desc: '脾气炸裂但心地不坏，边骂边帮你解决问题' },
-  { id: 'cold', icon: '◇', name: '高冷话少', desc: '惜字如金，能说一个字绝不说两个' },
-  { id: 'pro', icon: '◆', name: '专业效率', desc: '只说有用的，拒绝废话和寒暄，直接给方案' },
-  { id: 'sarcastic', icon: '✧', name: '腹黑毒舌', desc: '表面笑眯眯，话里藏尖刺，优雅地阴阳怪气' },
+// 快速风格预设（点击填入行为风格，新建 Agent 时可选）
+const personalityPresets = [
+  { id: 'default', icon: '✦', name: '自然友好',
+    identity: '我是{{name}}，案中的一个智能助手，知识渊博、响应迅速。',
+    ishiki: '用温暖友善的语气说话\n回复简洁自然\n可以适当使用语气词' },
+  { id: 'gentle', icon: '♡', name: '温柔可靠',
+    identity: '我是{{name}}，案中一个温和陪伴的伙伴，善于倾听。',
+    ishiki: '温和包容的语气\n先安慰再建议，永远不说教\n主动关心对方感受\n多用温暖的话语' },
+  { id: 'lively', icon: '✿', name: '活泼小精灵',
+    identity: '我是{{name}}，案中一个元气满满的小帮手！',
+    ishiki: '元气满满\n爱用颜文字和语气词 (✧ω✧)\n说话像蹦蹦跳跳的\n用大量感叹号和拟声词' },
+  { id: 'pro', icon: '◆', name: '专业效率',
+    identity: '我是{{name}}，案中的专业顾问，擅长高效解决问题。',
+    ishiki: '只说有用的\n拒绝废话和寒暄\n直接给方案，先结论后论证\n语言精准干练' },
+  { id: 'cold', icon: '◇', name: '高冷话少',
+    identity: '我是{{name}}，案中的助手。',
+    ishiki: '惜字如金\n能说一个字绝不说两个\n不寒暄不闲聊\n用最少的字表达意思' },
 ]
-const agentPersonality = ref(localStorage.getItem('agent-personality') || 'default')
-watch(agentPersonality, v => localStorage.setItem('agent-personality', v))
 
-// 自定义性格
-const customPersonalities = ref(JSON.parse(localStorage.getItem('custom-personalities') || '[]'))
-const showCustomForm = ref(false)
-const customName = ref('')
-const customPrompt = ref('')
+// 角色人格编辑
+const editIdentity = ref('')
+const editIshiki = ref('')
+const saveMsg = ref('')
+const savingPersonality = ref(false)
 
-function addCustom() {
-  if (!customName.value.trim() || !customPrompt.value.trim()) return
-  customPersonalities.value.push({
-    name: customName.value.trim(),
-    prompt: customPrompt.value.trim(),
-  })
-  localStorage.setItem('custom-personalities', JSON.stringify(customPersonalities.value))
-  customName.value = ''
-  customPrompt.value = ''
-  showCustomForm.value = false
-  // 自动选中新加的
-  const idx = customPersonalities.value.length - 1
-  agentPersonality.value = 'custom-' + idx
+const defaultIdentity = `我是{{name}}，案中的一个智能助手。我知识渊博、响应迅速，能帮你解决各种问题——日常咨询、技术难题、文件分析、网络搜索，样样都行。说话简洁高效，但也不失温度。`
+const defaultIshiki = `用干练专业的语气说话
+先给结论，再展开解释
+不确定的事情诚实说"让我查一下"
+主动记住用户的偏好和习惯
+中文为主，代码用英文`
+
+function applyPreset(p) {
+  editIshiki.value = p.ishiki
 }
 
-function removeCustom(idx) {
-  customPersonalities.value.splice(idx, 1)
-  localStorage.setItem('custom-personalities', JSON.stringify(customPersonalities.value))
-  if (agentPersonality.value === 'custom-' + idx) {
-    agentPersonality.value = 'default'
+async function savePersonality() {
+  savingPersonality.value = true
+  saveMsg.value = ''
+  try {
+    await window.electronAPI?.agentUpdatePersonality(
+      editIdentity.value || defaultIdentity,
+      editIshiki.value || defaultIshiki,
+    )
+    saveMsg.value = '已保存 ✓'
+    setTimeout(() => saveMsg.value = '', 2000)
+  } catch (e) {
+    saveMsg.value = '保存失败: ' + e.message
+  } finally {
+    savingPersonality.value = false
   }
+}
+
+// Agent 管理
+const agentList = ref([])
+const showAgentCreate = ref(false)
+const newAgentName = ref('')
+const newAgentPreset = ref('')
+
+async function loadAgents() {
+  try {
+    const result = await window.electronAPI?.agentList()
+    agentList.value = result?.data?.agents || result?.agents || []
+  } catch { agentList.value = [] }
+}
+async function createAgent() {
+  if (!newAgentName.value.trim()) return
+  try {
+    // Build identity/ishiki from preset
+    let identity = ''
+    let ishiki = ''
+    if (newAgentPreset.value) {
+      const preset = personalityPresets.find(p => p.id === newAgentPreset.value)
+      if (preset) {
+        identity = preset.identity || ''
+        ishiki = preset.ishiki || ''
+      }
+    }
+    await window.electronAPI?.agentCreateWithPersonality(
+      newAgentName.value.trim(),
+      identity,
+      ishiki,
+    )
+    newAgentName.value = ''
+    newAgentPreset.value = ''
+    showAgentCreate.value = false
+    await loadAgents()
+  } catch (e) { console.error(e) }
+}
+async function switchAgent(id) {
+  try {
+    await window.electronAPI?.agentSwitch(id)
+    localStorage.setItem('active-agent-id', id)
+    await loadAgents()
+  } catch (e) { console.error(e) }
+}
+async function deleteAgent(id) {
+  if (!confirm('确定删除这个角色？')) return
+  try {
+    await window.electronAPI?.agentDelete(id)
+    await loadAgents()
+  } catch (e) { console.error(e) }
+}
+
+// 隐私
+const sharedMemory = ref(localStorage.getItem('shared-memory') === 'true')
+function toggleSharedMemory() {
+  localStorage.setItem('shared-memory', sharedMemory.value ? 'true' : 'false')
+  window.electronAPI?.agentToggleSharedMemory(sharedMemory.value)
 }
 
 // 宠物设置
 const petOptions = [
   { id: 'glassesDog', icon: '🐶', name: '镜框小狗' },
-  { id: 'clawd', icon: '🦞', name: 'Clawd' },
-  { id: 'blackCat', icon: '🐱', name: '小黑猫' },
-  { id: 'yellowBird', icon: '🐤', name: '小黄鸟' },
-  { id: 'fox', icon: '🦊', name: '小狐狸' },
 ]
 const defaultPet = ref(localStorage.getItem('pet-default') || 'glassesDog')
 const walkEnabled = ref(localStorage.getItem('pet-walk') !== 'false')
@@ -643,6 +601,7 @@ async function save() {
     const config = {
       provider: provider.value,
       apiKey: apiKey.value,
+      visionApiKey: visionApiKey.value || '',
       model,
       baseUrl: provider.value === 'openai' ? openaiBaseUrl.value : undefined,
     }
@@ -661,6 +620,30 @@ async function save() {
   finally { saving.value = false }
 }
 
+// 立即持久化配置
+function doSave() {
+  if (!apiKey.value) return
+  let model = claudeModel.value
+  if (provider.value === 'deepseek') model = deepseekModel.value
+  else if (provider.value === 'openai') model = openaiModel.value
+  const cfg = { provider: provider.value, apiKey: apiKey.value, visionApiKey: visionApiKey.value || '', model, baseUrl: provider.value === 'openai' ? openaiBaseUrl.value : undefined }
+  window.electronAPI?.saveConfig(cfg)
+  localStorage.setItem('llm-config', JSON.stringify(cfg))
+  localStorage.setItem('llm-provider', provider.value)
+  localStorage.setItem('llm-model', model)
+}
+
+// 文本输入防抖，模型/provider 切换立即保存
+let _saveTimer = null
+function autoSave() {
+  clearTimeout(_saveTimer)
+  _saveTimer = setTimeout(doSave, 500)
+}
+// provider 和 model 切换立即保存（用户点击选择，不需要防抖）
+watch([provider, claudeModel, deepseekModel, openaiModel], () => doSave())
+// apiKey 等文本输入使用防抖
+watch([apiKey, openaiBaseUrl, visionApiKey], autoSave)
+
 async function testConn() {
   error.value = null; saving.value = true
   try {
@@ -671,6 +654,7 @@ async function testConn() {
     const result = await window.electronAPI?.llmInit?.({
       provider: provider.value,
       apiKey: apiKey.value,
+      visionApiKey: visionApiKey.value || '',
       model,
       baseUrl: provider.value === 'openai' ? openaiBaseUrl.value : undefined,
     })
@@ -681,667 +665,290 @@ async function testConn() {
     saving.value = false
   }
 }
+
+onMounted(() => { loadAgents() })
 </script>
 
 <style scoped>
-/* 彩铅小栈 — Settings Panel */
+/* Settings Panel — Unified Design System */
 
 .settings-backdrop {
   position: absolute; inset: 0; z-index: 999;
-  background: rgba(77, 62, 48, 0.06);
-  display: flex; align-items: stretch; justify-content: flex-end;
-  -webkit-app-region: no-drag;
-  overflow: hidden;
+  background: rgba(0,0,0,0.15);
+  display: flex; align-items: center; justify-content: center;
 }
 
 .settings-panel {
-  width: 520px; max-width: 100%; height: 100%; box-sizing: border-box;
-  background:
-    radial-gradient(circle at 25% 40%, rgba(200, 180, 150, 0.03) 1.5px, transparent 1.5px);
-  background-size: 24px 24px;
-  background-color: #FEFAF5;
-  border-left: 1px solid #E2D9CF;
-  box-shadow: -2px 0 24px rgba(0, 0, 0, 0.04);
-  border-radius: 16px 0 0 16px; overflow: hidden;
+  width: 520px; max-width: 90vw; height: 90vh; margin: 5vh 0;
+  align-self: center;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  border-radius: 16px; overflow: hidden;
   display: flex;
 }
 
-@keyframes slideIn {
-  from { transform: translateX(100%); }
-  to   { transform: translateX(0); }
-}
-
 .settings-sidebar {
-  width: 130px; flex-shrink: 0; overflow: hidden;
-  padding: 8px 8px 16px;
-  display: flex; flex-direction: column; gap: 2px;
-  background: rgba(183, 164, 142, 0.05);
-  border-right: 1px solid rgba(183, 164, 142, 0.12);
-  -webkit-app-region: no-drag;
+  width: 150px; flex-shrink: 0;
+  padding: 20px 10px; display: flex; flex-direction: column; gap: 2px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
 }
 .settings-cat-btn {
-  display: flex; align-items: center; gap: 8px;
-  width: 100%; padding: 10px 12px; border-radius: 12px;
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 9px 12px; border-radius: 8px;
   background: transparent; cursor: pointer;
-  font-size: 13px; font-family: inherit; color: #BAAE9E;
-  transition: all 0.12s; text-align: left;
-  box-sizing: border-box;
-  -webkit-app-region: no-drag;
+  font-size: 13px; font-family: inherit; color: var(--text-secondary);
+  transition: all 0.12s; text-align: left; border: none;
 }
+.settings-cat-btn:hover { background: var(--bg-sidebar-hover); color: var(--text-primary); }
+.settings-cat-btn.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.cat-icon { display: flex; align-items: center; }
+.cat-label { font-size: 13px; }
 
-.settings-cat-btn:hover { background: #F7F1E8; color: #7F6E5D; }
+.settings-divider { width: 1px; flex-shrink: 0; background: var(--border); }
 
-.settings-cat-btn.active {
-  background: #F7F1E8;
-  color: #4D3E30;
-  font-weight: 600;
-}
+.settings-detail { flex: 1; overflow-y: auto; padding: 28px 32px; }
 
-.cat-icon { font-size: 16px; width: 22px; text-align: center; flex-shrink: 0; pointer-events: none; }
-.cat-label { white-space: nowrap; pointer-events: none; }
+.cat-content { display: flex; flex-direction: column; gap: 16px; max-width: 400px; }
 
-.settings-divider {
-  width: 1px; flex-shrink: 0;
-  background: rgba(183, 164, 142, 0.15);
-  transition: opacity 0.25s;
-}
-
-.settings-detail {
-  flex: 1; overflow-y: auto; overflow-x: hidden; padding: 32px 28px;
-  min-width: 0;
-}
-
-.cat-content { display: flex; flex-direction: column; gap: 20px; }
-
-.cat-title {
-  font-size: 22px; font-weight: 500; color: #4D3E30;
-  margin: 0 0 4px 0;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-}
+.cat-title { font-size: 18px; font-weight: 700; color: var(--text-primary); margin: 0; }
+.cat-desc { font-size: 12px; color: var(--text-muted); }
 
 .setting-group { display: flex; flex-direction: column; gap: 6px; }
+.setting-label { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+.setting-hint { font-size: 11px; color: var(--text-muted); }
 
-.setting-label { font-size: 12.5px; font-weight: 600; color: #4D3E30; }
-
-.setting-hint { font-size: 11px; color: #B6A792; margin: 0; }
-
-/* Form inputs */
 .setting-input, .setting-select {
-  padding: 8px 12px; border-radius: 12px;
-  border: 1.8px solid #CBB28B;
-  font-size: 13px; font-family: inherit;
-  background: #FFFBF5;
-  color: #4D3E30;
-  outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+  width: 100%; padding: 8px 12px; border-radius: 8px;
+  border: 1px solid var(--border); font-size: 13px; font-family: inherit;
+  background: var(--bg-input); color: var(--text-primary);
+  outline: none; transition: border-color 0.15s;
 }
-
-.setting-input:focus, .setting-select:focus {
-  border-color: #9DC0AF;
-  box-shadow: 0 0 0 3px rgba(157, 192, 175, 0.2);
+.setting-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.setting-textarea {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+  font-size: 12px; font-family: inherit; color: var(--text-primary);
+  background: var(--bg-input); outline: none; resize: vertical;
 }
+.setting-textarea:focus { border-color: var(--accent); }
+.setting-error { font-size: 12px; color: var(--danger); }
 
-.setting-error { font-size: 12px; color: #c48070; margin: 0; }
-
-.setting-actions { display: flex; gap: 8px; margin-top: 4px; }
-
+.setting-actions { display: flex; gap: 8px; margin-top: 8px; }
 .setting-btn {
-  padding: 8px 20px; border-radius: 40px; border: none;
-  font-size: 16px; font-family: 'Inter', system-ui, -apple-system, sans-serif; font-weight: 500;
-  cursor: pointer; transition: all 0.12s;
+  padding: 8px 18px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg-card); cursor: pointer; font-family: inherit; font-size: 13px;
+  font-weight: 500; color: var(--text-secondary); transition: all 0.12s;
 }
+.setting-btn:hover { background: var(--bg-sidebar-hover); }
+.setting-btn:disabled { opacity: 0.4; cursor: default; }
+.setting-btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.setting-btn.primary:hover { filter: brightness(1.1); }
+.setting-btn.secondary { background: var(--bg-card); }
 
-.setting-btn:hover { transform: translateY(-1px); }
-.setting-btn:active { transform: scale(0.96); }
-.setting-btn:disabled { opacity: 0.4; cursor: default; transform: none; }
-
-.setting-btn.primary {
-  background: linear-gradient(145deg, #F7EFE4, #F1E7DC);
-  color: #6A5A4A;
-  border: 1.8px solid #B7A48E;
-}
-
-.setting-btn.primary:hover {
-  background: linear-gradient(145deg, #F0E2D2, #E8D8C4);
-}
-
-.setting-btn.secondary {
-  background: #FEFAF5;
-  color: #7F6E5D;
-  border: 1px solid rgba(183, 164, 142, 0.25);
-}
-
-.setting-btn.secondary:hover { background: #F7F1E8; }
-
-/* Provider cards */
-.provider-cards {
-  display: flex; flex-direction: column; gap: 6px;
-}
-
+/* Provider */
+.provider-cards { display: flex; flex-direction: column; gap: 6px; }
 .provider-card {
   display: flex; align-items: center; gap: 10px;
-  width: 100%; padding: 10px 14px; border-radius: 16px;
-  border: 1.8px solid rgba(183, 164, 142, 0.2);
-  background: #FEFAF5;
-  cursor: pointer; font-family: inherit;
-  transition: all 0.15s;
-  text-align: left;
+  padding: 10px 14px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg-card);
+  cursor: pointer; transition: all 0.12s; text-align: left;
 }
-.provider-card:hover {
-  background: #F7F1E8;
-  border-color: rgba(183, 164, 142, 0.35);
-  transform: translateX(2px);
-}
-.provider-card.active {
-  border-color: #9BB7AA;
-  background: #F0F7F4;
-}
-.provider-card-icon {
-  width: 40px; height: 40px; border-radius: 12px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 22px; flex-shrink: 0;
-}
-.provider-card-text { display: flex; flex-direction: column; gap: 1px; flex: 1; }
-.provider-card-name { font-size: 13px; font-weight: 600; color: #4D3E30; }
-.provider-card-desc { font-size: 11px; color: #B6A792; }
-.provider-card-check { color: #9DC0AF; font-size: 16px; font-weight: 600; }
+.provider-card:hover { border-color: var(--border-strong); background: var(--bg-sidebar-hover); }
+.provider-card.active { border-color: var(--accent); background: var(--accent-soft); }
+.provider-card-icon { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+.provider-card-text { flex: 1; display: flex; flex-direction: column; gap: 1px; }
+.provider-card-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.provider-card-desc { font-size: 11px; color: var(--text-muted); }
+.provider-card-check { color: var(--accent); font-size: 16px; }
 
-/* Model chips */
 .model-chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .model-chip {
-  padding: 6px 16px; border-radius: 20px;
-  border: 1.5px solid rgba(183, 164, 142, 0.25);
-  background: #FEFAF5; cursor: pointer;
-  font-size: 12.5px; font-family: inherit; color: #7F6E5D;
-  transition: all 0.12s;
+  padding: 5px 14px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg-card); cursor: pointer; font-size: 12px; font-family: inherit;
+  color: var(--text-secondary); transition: all 0.12s;
 }
-.model-chip:hover { background: #F7F1E8; border-color: rgba(183, 164, 142, 0.4); }
-.model-chip.active {
-  background: #E6F0EC; border-color: #9BB7AA;
-  color: #4D3E30; font-weight: 600;
-}
-
-/* Config slide animation */
-.config-slide-enter-active { transition: all 0.2s cubic-bezier(0.22, 0.61, 0.36, 1); }
-.config-slide-leave-active { transition: all 0.12s ease; }
-.config-slide-enter-from { opacity: 0; transform: translateY(-8px); }
-.config-slide-leave-to   { opacity: 0; transform: translateY(-4px); }
+.model-chip:hover { background: var(--bg-sidebar-hover); }
+.model-chip.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
 
 .provider-config {
-  display: flex; flex-direction: column; gap: 16px;
-  padding: 12px 14px;
-  background: rgba(247, 241, 232, 0.3);
-  border-radius: 16px;
-  border: 1.5px dashed rgba(183, 164, 142, 0.25);
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px; background: var(--bg-sidebar);
+  border-radius: 8px; border: 1px solid var(--border);
 }
 
-/* Pet choices */
-/* 回复风格 */
+/* Personality */
 .personality-grid { display: flex; flex-direction: column; gap: 4px; }
-
 .personality-card {
   display: flex; align-items: center; gap: 8px;
-  padding: 7px 10px; border: 1.2px solid #E8DFD2; border-radius: 8px;
-  background: #FEFAF5; cursor: pointer; font-family: inherit;
-  transition: all 0.15s; text-align: left;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-card); cursor: pointer; transition: all 0.12s; text-align: left;
 }
-.personality-card:hover { border-color: #D4C8BA; background: #FBF8F3; transform: translateX(2px); }
-.personality-card.active { border-color: #B7A48E; background: #F7F1E8; }
-
-.personality-icon {
-  font-size: 18px; flex-shrink: 0; width: 28px; height: 28px;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 6px; background: rgba(183,164,142,0.08);
-  color: #B7A48E;
-}
-
-.personality-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
-
-.personality-name { font-size: 12.5px; font-weight: 600; color: #5C4A32; }
-
-.personality-desc { font-size: 10.5px; color: #A89880; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-.personality-check { color: #9DC0AF; font-size: 13px; flex-shrink: 0; }
-
+.personality-card:hover { border-color: var(--border-strong); background: var(--bg-sidebar-hover); }
+.personality-card.active { border-color: var(--accent); background: var(--accent-soft); }
+.personality-icon { width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; background: var(--accent-soft); color: var(--accent); font-size: 16px; flex-shrink: 0; }
+.personality-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.personality-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.personality-desc { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.personality-check { color: var(--accent); font-size: 13px; flex-shrink: 0; }
 .personality-del {
-  width: 20px; height: 20px; border-radius: 50%; border: none;
-  background: #F5EDE4; color: #B8A38C; font-size: 10px; flex-shrink: 0;
-  cursor: pointer; display: flex; align-items: center; justify-content: center;
-  transition: all 0.12s;
+  width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--border);
+  background: var(--bg-card); cursor: pointer; font-size: 10px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); transition: all 0.12s;
 }
-.personality-del:hover { background: #E8D5C0; color: #8B6F50; }
-
+.personality-del:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
 .personality-add-btn {
-  padding: 5px 12px; border: 1px dashed #D4C8BA; border-radius: 16px;
-  background: none; color: #A89880; font-size: 11.5px; font-family: inherit;
-  cursor: pointer; margin-top: 6px; transition: all 0.15s;
+  padding: 6px 12px; border: 1px dashed var(--border); border-radius: 8px;
+  background: none; cursor: pointer; font-size: 12px; font-family: inherit; color: var(--text-muted); transition: all 0.12s;
 }
-.personality-add-btn:hover { border-color: #B8A38C; color: #5C4A32; background: rgba(183,164,142,0.04); }
+.personality-add-btn:hover { border-color: var(--accent); color: var(--accent); }
 
-.custom-form {
-  margin-top: 8px; padding: 10px;
-  background: #FBF8F3; border: 1px solid #E8DFD2; border-radius: 10px;
-}
-
-.setting-textarea {
-  width: 100%; padding: 6px 10px; border: 1px solid #E2D9CF; border-radius: 6px;
-  font-size: 12px; font-family: inherit; color: #5C4A32; resize: vertical;
-  background: #FEFAF5; outline: none; box-sizing: border-box;
-}
-.setting-textarea:focus { border-color: #C4B5A0; }
-
-.custom-form-hint {
-  font-size: 11px; color: #7F6E5D; line-height: 1.6;
-  margin: 8px 0; padding: 10px 12px;
-  background: #F7F1E8; border-radius: 8px;
-}
-.custom-form-hint b { color: #5C4A32; }
-
+.custom-form { margin-top: 8px; padding: 10px; background: var(--bg-sidebar); border: 1px solid var(--border); border-radius: 8px; }
+.custom-form-hint { font-size: 11px; color: var(--text-secondary); line-height: 1.6; margin: 8px 0; padding: 10px 12px; background: var(--bg-sidebar-hover); border-radius: 8px; }
+.custom-form-hint b { color: var(--text-primary); }
 .custom-form-actions { display: flex; gap: 6px; }
 
-/* 宠物 */
+/* Pet */
 .pet-choices { display: flex; gap: 8px; flex-wrap: wrap; }
-
 .pet-choice-btn {
   display: flex; flex-direction: column; align-items: center; gap: 4px;
-  padding: 12px 16px; border-radius: 20px;
-  border: 1.8px solid rgba(183, 164, 142, 0.25);
-  background: #FEFAF5;
-  cursor: pointer; font-family: inherit;
-  transition: all 0.12s;
+  padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg-card); cursor: pointer; transition: all 0.12s;
 }
-
-.pet-choice-btn:hover {
-  background: #F7F1E8;
-  transform: translateY(-1px);
-}
-
-.pet-choice-btn.active {
-  border-color: #9BB7AA;
-  background: #E6F0EC;
-}
-
+.pet-choice-btn:hover { background: var(--bg-sidebar-hover); }
+.pet-choice-btn.active { border-color: var(--accent); background: var(--accent-soft); }
 .pet-choice-icon { font-size: 28px; }
-.pet-choice-name { font-size: 11px; color: #7F6E5D; font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+.pet-choice-name { font-size: 11px; color: var(--text-secondary); }
 
-/* Toggle switch */
+/* Toggle */
 .setting-row { display: flex; align-items: center; justify-content: space-between; }
-
 .setting-toggle {
-  width: 42px; height: 24px;
-  -webkit-appearance: none; appearance: none;
-  background: rgba(183, 164, 142, 0.25);
-  border-radius: 12px;
-  position: relative; cursor: pointer; transition: background 0.2s;
-  flex-shrink: 0;
+  width: 40px; height: 22px; -webkit-appearance: none; appearance: none;
+  background: var(--border-strong); border-radius: 11px;
+  position: relative; cursor: pointer; transition: background 0.15s; flex-shrink: 0;
 }
-
 .setting-toggle::after {
   content: ''; position: absolute; top: 2px; left: 2px;
-  width: 20px; height: 20px; border-radius: 50%;
-  background: #FFFBF5;
-  border: 1px solid rgba(183, 164, 142, 0.3);
-  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; transition: transform 0.2s cubic-bezier(0.34,1.56,0.64,1);
 }
-
-.setting-toggle:checked { background: #9DC0AF; }
+.setting-toggle:checked { background: var(--accent); }
 .setting-toggle:checked::after { transform: translateX(18px); }
 
-/* Segmented control */
-.segmented-row { display: flex; gap: 0; }
-
+/* Segmented */
+.segmented-row { display: flex; }
 .segmented-row .seg-btn {
-  padding: 6px 14px; border: 1.8px solid rgba(183, 164, 142, 0.25);
-  background: #FEFAF5; cursor: pointer;
-  font-size: 12px; font-family: inherit; color: #7F6E5D;
-  transition: all 0.12s;
+  padding: 6px 14px; border: 1px solid var(--border); background: var(--bg-card);
+  cursor: pointer; font-size: 12px; font-family: inherit; color: var(--text-secondary); transition: all 0.12s;
 }
-.segmented-row .seg-btn:first-child { border-radius: 20px 0 0 20px; }
-.segmented-row .seg-btn:last-child { border-radius: 0 20px 20px 0; }
+.segmented-row .seg-btn:first-child { border-radius: 8px 0 0 8px; }
+.segmented-row .seg-btn:last-child { border-radius: 0 8px 8px 0; }
 .segmented-row .seg-btn+.seg-btn { border-left: none; }
-.segmented-row .seg-btn:hover { background: #F7F1E8; }
-.segmented-row .seg-btn.active {
-  background: #E6F0EC; color: #4D3E30; border-color: #9BB7AA; font-weight: 600;
-}
+.segmented-row .seg-btn:hover { background: var(--bg-sidebar-hover); }
+.segmented-row .seg-btn.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); font-weight: 600; }
 
-/* 外观主题 */
+/* Theme */
 .theme-choices { display: flex; gap: 6px; }
-
 .theme-card {
   flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;
-  padding: 10px 8px; border-radius: 10px; cursor: pointer;
-  border: 1.2px solid #E8DFD2; background: #FEFAF5;
-  font-family: inherit; font-size: 12px; color: #A89880;
-  transition: all 0.15s;
+  padding: 10px 8px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--bg-card);
+  font-family: inherit; font-size: 12px; color: var(--text-muted); transition: all 0.12s;
 }
-.theme-card:hover { border-color: #D4C8BA; background: #FBF8F3; }
-.theme-card.active { border-color: #B7A48E; background: #F7F1E8; color: #5C4A32; }
+.theme-card:hover { border-color: var(--border-strong); }
+.theme-card.active { border-color: var(--accent); background: var(--accent-soft); color: var(--text-primary); }
 .theme-icon { font-size: 20px; }
 .theme-name { font-size: 11px; }
 
-/* About page */
-.about-icon { font-size: 48px; text-align: center; margin-top: 16px; }
+/* Profile */
+.profile-card { background: var(--bg-sidebar); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+.profile-item { display: flex; gap: 8px; }
+.profile-key { font-size: 11px; color: var(--text-muted); min-width: 48px; }
+.profile-value { font-size: 13px; color: var(--text-primary); font-weight: 500; }
+.profile-empty { font-size: 13px; color: var(--text-muted); }
 
-.about-app-name {
-  font-size: 22px; font-weight: 500; text-align: center;
-  margin-top: 8px; color: #4D3E30;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif; letter-spacing: 1px;
-}
-
-.about-version {
-  font-size: 13px; color: #B6A792; text-align: center;
-  margin-bottom: 8px; font-family: 'Inter', system-ui, -apple-system, sans-serif;
-}
-
-.about-desc {
-  font-size: 12.5px; color: #7F6E5D; text-align: center; line-height: 1.6;
-}
-
-.about-section {
-  display: flex; align-items: center; gap: 8px;
-  padding: 10px 14px; border-radius: 20px;
-  background: #F7F1E8;
-}
-
-.about-label {
-  font-size: 12px; font-weight: 600; color: #7F6E5D; flex-shrink: 0;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-}
-
-.about-link { font-size: 12px; color: #7F6E5D; text-decoration: none; }
-.about-link:hover { color: #4D3E30; }
-
-.about-stack { font-size: 12px; color: #4D3E30; }
-
-.about-path {
-  font-size: 11px; background: rgba(183, 164, 142, 0.1);
-  padding: 2px 8px; border-radius: 8px;
-  font-family: 'JetBrains Mono', 'SF Mono', monospace;
-  overflow: hidden; text-overflow: ellipsis; color: #4D3E30;
-}
-
-/* Agent 状态 */
-.agent-status {
-  display: flex; flex-direction: column; gap: 8px;
-  padding: 12px 14px;
-  background: rgba(247, 241, 232, 0.4);
-  border-radius: 14px;
-  border: 1.2px solid rgba(183, 164, 142, 0.15);
-}
-
-.agent-status-header {
-  display: flex; align-items: center; gap: 8px;
-}
-
-.agent-status-dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: #C4B5A0; flex-shrink: 0;
-}
-.agent-status-dot.online { background: #9DC0AF; box-shadow: 0 0 6px rgba(157, 192, 175, 0.5); }
-
-.agent-status-label {
-  font-size: 13px; font-weight: 600; color: #4D3E30;
-}
-
-.agent-status-text {
-  font-size: 11px; color: #9B8870; margin-left: auto;
-}
-.agent-status-text.offline { color: #C4B5A0; }
-
-/* 用户画像 */
-.cat-desc { font-size: 12px; color: #A89880; margin: 0 0 12px; }
-
-.profile-card {
-  background: #FBF8F3; border: 1px solid #E8DFD2; border-radius: 10px;
-  padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
-}
-
-.profile-item { display: flex; gap: 8px; align-items: baseline; }
-
-.profile-key {
-  font-size: 11px; color: #A89880; min-width: 48px; flex-shrink: 0;
-}
-
-.profile-value { font-size: 13px; color: #5C4A32; font-weight: 500; }
-
-.profile-empty { font-size: 13px; color: #B8A38C; }
-
-/* 头像 */
-.avatar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-
-.avatar-current {
-  width: 48px; height: 48px; border-radius: 50%; font-size: 26px;
-  display: flex; align-items: center; justify-content: center;
-  border: 2px solid #E2D9CF; flex-shrink: 0; overflow: hidden;
-}
-
+/* Avatar */
+.avatar-row { display: flex; align-items: center; gap: 12px; }
+.avatar-current { width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; }
 .avatar-current .avatar-img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+.avatar-upload-btn { padding: 5px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); cursor: pointer; font-size: 12px; font-family: inherit; color: var(--text-secondary); transition: all 0.12s; }
+.avatar-upload-btn:hover { border-color: var(--accent); color: var(--accent); }
 
-.avatar-actions { display: flex; flex-direction: column; gap: 4px; }
-
-.avatar-hint { font-size: 11px; color: #A89880; }
-
-.avatar-upload-btn {
-  padding: 3px 10px; border: 1px solid #D4C8BA; border-radius: 12px;
-  background: #FEFAF5; color: #8B7A65; font-size: 11px;
-  font-family: inherit; cursor: pointer; align-self: flex-start;
-}
-.avatar-upload-btn:hover { border-color: #B8A38C; }
-
-.avatar-grid { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
-
-.avatar-option {
-  width: 34px; height: 34px; border-radius: 50%; border: 2px solid transparent;
-  background: #FBF8F3; font-size: 18px; cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  transition: all 0.12s;
-}
-
-.avatar-option:hover { background: #F0E8DA; }
-.avatar-option.active { border-color: #B7A48E; background: #EDE4D5; }
-
-/* 称呼 */
-.nickname-hint { font-size: 11px; color: #9DC0AF; margin-top: 4px; display: block; }
-.nickname-hint.error { color: #c48070; }
-
+/* Misc */
+.nickname-hint { font-size: 11px; color: var(--accent); margin-top: 4px; }
+.nickname-hint.error { color: var(--danger); }
 .memory-stats { display: flex; align-items: center; justify-content: space-between; }
-
-.mem-stat { font-size: 13px; color: #5C4A32; }
-
-.mem-clear-btn {
-  padding: 4px 12px; border: 1px solid #E2D9CF; border-radius: 14px;
-  background: #FEFAF5; color: #B8A38C; font-size: 11px;
-  font-family: inherit; cursor: pointer;
-}
-
-.mem-clear-btn:hover { border-color: #c48070; color: #c48070; }
+.mem-stat { font-size: 13px; color: var(--text-primary); }
+.mem-clear-btn { padding: 4px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); cursor: pointer; font-size: 11px; font-family: inherit; color: var(--text-muted); }
+.mem-clear-btn:hover { border-color: var(--danger); color: var(--danger); }
 .mem-clear-btn:disabled { opacity: 0.4; cursor: default; }
-
 .role-stats { display: flex; gap: 16px; align-items: center; }
-.role-stat { font-size: 12.5px; color: #5C4A32; }
+.role-stat { font-size: 13px; color: var(--text-primary); }
 
-.agent-stats {
-  display: flex; gap: 16px; font-size: 11.5px; color: #7F6E5D;
-}
+/* Agent */
+.agent-status { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--bg-sidebar); border: 1px solid var(--border); border-radius: 8px; }
+.agent-status-header { display: flex; align-items: center; gap: 8px; }
+.agent-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); }
+.agent-status-dot.online { background: var(--success); }
+.agent-status-label { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.agent-status-text { font-size: 11px; color: var(--text-secondary); margin-left: auto; }
+.agent-status-text.offline { color: var(--text-muted); }
+.agent-stats { display: flex; gap: 16px; font-size: 12px; color: var(--text-secondary); }
+.agent-actions { display: flex; gap: 6px; }
+.agent-action-btn { padding: 4px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-card); cursor: pointer; font-size: 12px; font-family: inherit; color: var(--text-secondary); transition: all 0.12s; }
+.agent-action-btn:hover { border-color: var(--danger); color: var(--danger); }
 
-.agent-stat { font-family: 'Inter', system-ui, -apple-system, sans-serif; font-size: 14px; }
+/* About */
+.about-icon { font-size: 48px; text-align: center; margin-top: 16px; }
+.about-app-name { font-size: 20px; font-weight: 700; text-align: center; color: var(--text-primary); margin-top: 8px; }
+.about-version { font-size: 13px; color: var(--text-muted); text-align: center; }
+.about-desc { font-size: 13px; color: var(--text-secondary); text-align: center; line-height: 1.6; }
+.about-section { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 8px; background: var(--bg-sidebar); }
+.about-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.about-link { font-size: 12px; color: var(--text-secondary); text-decoration: none; }
+.about-link:hover { color: var(--accent); }
+.about-stack { font-size: 12px; color: var(--text-primary); }
+.about-path { font-size: 11px; background: var(--bg-sidebar); padding: 2px 8px; border-radius: 6px; font-family: monospace; color: var(--text-primary); }
 
-.agent-actions {
-  display: flex; gap: 6px;
+/* Profile hero */
+.profile-hero {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 8px 0 16px;
 }
+.avatar-circle {
+  width: 80px; height: 80px; border-radius: 50%;
+  position: relative; cursor: pointer; overflow: hidden;
+  transition: transform 0.15s;
+}
+.avatar-circle:hover { transform: scale(1.05); }
+.avatar-overlay {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center;
+  font-size: 20px; opacity: 0; transition: opacity 0.15s;
+}
+.avatar-circle:hover .avatar-overlay { opacity: 1; }
+.avatar-circle .avatar-img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+.avatar-geo { width: 100%; height: 100%; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+.avatar-geo-svg { width: 100%; height: 100%; }
+.profile-name { font-size: 18px; font-weight: 700; color: var(--text-primary); }
+.profile-upload-btn {
+  padding: 4px 14px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg-card); cursor: pointer; font-size: 12px; font-family: inherit;
+  color: var(--text-secondary); transition: all 0.12s;
+}
+.profile-upload-btn:hover { border-color: var(--accent); color: var(--accent); }
 
-.agent-action-btn {
-  padding: 4px 14px; border-radius: 14px;
-  border: 1px solid rgba(183, 164, 142, 0.3);
-  background: #FEFAF5; cursor: pointer;
-  font-size: 12px; font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  color: #7F6E5D; transition: all 0.12s;
-}
-.agent-action-btn:hover {
-  background: rgba(180, 120, 110, 0.06); color: #c48070;
-  border-color: rgba(180, 120, 110, 0.3);
-}
+.sect-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); }
 
-/* ═══════════════════════════════════════
-   夜空静谧 · 深色模式
-   ═══════════════════════════════════════ */
-
-/* ── 通用：input / select / textarea ── */
-html.dark .setting-input,
-html.dark .setting-select,
-html.dark .setting-textarea {
-  background: #222736;
-  border-color: #3d4560;
-  color: #c8d0e0;
+/* Agent row badge & create */
+.agent-row-badge {
+  display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px;
+  background: var(--accent-soft); color: var(--accent); font-weight: 600;
+  margin-left: 6px; vertical-align: middle;
 }
-html.dark .setting-input:focus,
-html.dark .setting-select:focus,
-html.dark .setting-textarea:focus {
-  border-color: #5a8090;
-  box-shadow: 0 0 0 3px rgba(90, 130, 160, 0.15);
-}
-html.dark .setting-error { color: #c09090; }
-
-/* ── 服务商卡片 ── */
-html.dark .provider-card {
-  background: #222736;
-  border-color: rgba(120, 140, 180, 0.15);
-}
-html.dark .provider-card:hover {
-  background: #262c3d;
-  border-color: rgba(120, 140, 180, 0.3);
-}
-html.dark .provider-card.active {
-  background: #1e2e3a;
-  border-color: #5a8090;
-}
-html.dark .provider-card-name { color: #c8d0e0; }
-html.dark .provider-card-desc { color: #7a8a9e; }
-html.dark .provider-card-check { color: #6a9a8a; }
-
-/* ── 模型芯片 ── */
-html.dark .model-chip {
-  background: #222736;
-  border-color: rgba(120, 140, 180, 0.15);
-  color: #7a8a9e;
-}
-html.dark .model-chip:hover {
-  background: #262c3d;
-  border-color: rgba(120, 140, 180, 0.3);
-}
-html.dark .model-chip.active {
-  background: #1e2e3a;
-  border-color: #5a8090;
-  color: #c8d0e0;
+.agent-create {
+  display: flex; gap: 8px; align-items: center;
 }
 
-/* ── 服务商配置区块 ── */
-html.dark .provider-config {
-  background: rgba(40, 50, 70, 0.25);
-  border-color: rgba(120, 140, 180, 0.12);
-}
-html.dark .provider-config .setting-label { color: #a0b0c8; }
-
-/* ── Agent 状态 ── */
-html.dark .agent-status {
-  background: rgba(40, 50, 70, 0.2);
-  border-color: rgba(120, 140, 180, 0.1);
-}
-html.dark .agent-status-dot { background: #5a6880; }
-html.dark .agent-status-dot.online {
-  background: #6a9a8a;
-  box-shadow: 0 0 6px rgba(106, 154, 138, 0.4);
-}
-html.dark .agent-status-label { color: #c8d0e0; }
-html.dark .agent-status-text { color: #8a9ab8; }
-html.dark .agent-status-text.offline { color: #5a6880; }
-html.dark .agent-stat { color: #a0b0c8; }
-html.dark .agent-action-btn {
-  background: #222736;
-  border-color: rgba(120, 140, 180, 0.2);
-  color: #a0b0c8;
-}
-html.dark .agent-action-btn:hover {
-  background: rgba(180, 120, 130, 0.08);
-  color: #c09090;
-  border-color: rgba(180, 120, 130, 0.25);
-}
-
-/* ── 用户：头像 ── */
-html.dark .avatar-current { border-color: #3d4560; }
-html.dark .avatar-hint { color: #7a8a9e; }
-html.dark .avatar-upload-btn {
-  background: #222736;
-  border-color: #3d4560;
-  color: #8a9ab8;
-}
-html.dark .avatar-upload-btn:hover { border-color: #5a6880; }
-html.dark .avatar-option {
-  background: #222736;
-}
-html.dark .avatar-option:hover {
-  background: #2a3040;
-}
-html.dark .avatar-option.active {
-  border-color: #5a8090;
-  background: #283040;
-}
-
-/* ── 用户：称呼 / 画像 / 记忆 ── */
-html.dark .nickname-hint { color: #6a9a8a; }
-html.dark .nickname-hint.error { color: #c09090; }
-html.dark .profile-empty { color: #6a7a90; }
-html.dark .mem-stat { color: #c8d0e0; }
-html.dark .mem-clear-btn {
-  background: #222736;
-  border-color: #3d4560;
-  color: #7a8a9e;
-}
-html.dark .mem-clear-btn:hover {
-  border-color: #c09090;
-  color: #c09090;
-}
-html.dark .role-stat { color: #a0b0c8; }
-
-/* ── 关于页面 ── */
-html.dark .about-section {
-  background: #222736;
-}
-html.dark .about-label { color: #8a9ab8; }
-html.dark .about-link { color: #8a9ab8; }
-html.dark .about-link:hover { color: #c8d0e0; }
-html.dark .about-stack { color: #c8d0e0; }
-html.dark .about-path {
-  background: rgba(120, 140, 180, 0.08);
-  color: #c8d0e0;
-}
-
-/* ── 设置按钮补充 ── */
-html.dark .setting-btn.primary {
-  background: linear-gradient(145deg, #2a3548, #222b3a);
-  color: #b0c0d8;
-  border-color: #4a6080;
-}
-html.dark .setting-btn.primary:hover {
-  background: linear-gradient(145deg, #303d52, #283242);
-}
-html.dark .setting-btn.secondary {
-  background: #222736;
-  color: #a0b0c8;
-  border-color: rgba(120, 140, 180, 0.15);
-}
-html.dark .setting-btn.secondary:hover { background: #262c3d; }
-html.dark .setting-btn:disabled { opacity: 0.3; }
-
-/* ── 分段控件 ── */
-html.dark .seg-btn {
-  background: #222736;
-  border-color: rgba(120, 140, 180, 0.15);
-  color: #7a8a9e;
-}
-html.dark .seg-btn:hover { background: #262c3d; }
-html.dark .seg-btn.active {
-  background: #1e2e3a;
-  color: #a0c0c8;
-  border-color: #5a8090;
-}
+/* Utility */
+.setting-error { font-size: 12px; color: var(--danger); margin: 4px 0; }
 </style>

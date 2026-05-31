@@ -13,12 +13,22 @@
   "main": "electron/main.cjs",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.97.1",
+    "@phosphor-icons/vue": "^2.2.1",
+    "better-sqlite3": "^12.10.0",
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
     "electron": "^42.2.0",
+    "gsap": "^3.15.0",
+    "hono": "^4.12.23",
+    "js-yaml": "^4.1.1",
+    "lucide-vue-next": "^1.0.0",
+    "marked": "^18.0.4",
     "openai": "^6.38.0",
+    "uuid": "^14.0.0",
     "vue": "^3.5.34",
+    "vue-boring-avatars": "^1.4.0",
     "wait-on": "^9.0.10",
+    "ws": "^8.21.0",
     "zustand": "^5.0.13"
   },
   "devDependencies": {

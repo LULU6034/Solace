@@ -9,11 +9,15 @@
 import { webSearch, webFetch } from './web-tools.js';
 import { readFile, writeFile, listFiles, readImage } from './file-tools.js';
 import { executeCommand } from './command-tool.js';
-import { remember, recall } from './memory-tools.js';
+import { remember, recall, forget, updateMemory, memoryStatus, setKG } from './memory-tools.js';
+export { setKG };
 import { getAgentTools } from './agent-tools.js';
+import { musicTools, setMusicMemoryStore } from '../music/tools.js';
 
 // Re-export from shared module to break circular dependency
 export { setMemoryStore, getMemoryStore } from './memory-store-ref.js';
+// Expose for music tools
+export { setMusicMemoryStore };
 
 const _agentTools = getAgentTools();
 
@@ -28,7 +32,11 @@ export function getAllTools() {
     executeCommand,
     remember,
     recall,
+    forget,
+    updateMemory,
+    memoryStatus,
     ..._agentTools,
+    ...musicTools,
   ];
 }
 

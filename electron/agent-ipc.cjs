@@ -46,12 +46,19 @@ function registerAgentIPC() {
     error: 'agent-error',
     tool_approval_request: 'agent-tool-approval-request',
     memory_updated: 'agent-memory-updated',
+    memory_conflict: 'memory-conflict',
     coordinator_start: 'coordinator-start',
     coordinator_info: 'coordinator-info',
     coordinator_done: 'coordinator-done',
     coordinator_error: 'coordinator-error',
     coordinator_review: 'coordinator-review',
     plan_ready: 'plan-ready',
+    hatch_done: 'hatch-done',
+    hatch_error: 'hatch-error',
+    hatched_pets: 'hatched-pets',
+    hatch_deleted: 'hatch-deleted',
+    agent_pets_ready: 'agent-pets-ready',
+    agent_pets: 'agent-pets',
     expert_thought: 'expert-thought',
     expert_reasoning: 'expert-reasoning',
     expert_action: 'expert-action',
@@ -65,6 +72,8 @@ function registerAgentIPC() {
   // agent-chat: 单 Agent 对话
   ipcMain.handle('agent-chat', async (event, { config, messages, conversationId }) => {
     const wc = event.sender;
+    // 强制 DeepSeek（Claude 国内需 VPN，配置文件可能有旧值缓存）
+    if (config.provider === 'claude') { config.provider = 'deepseek'; config.model = 'deepseek-v4-pro'; }
     console.log('[agent-ipc] agent-chat request, provider:', config.provider);
 
     const unsubs = [];
@@ -88,7 +97,7 @@ function registerAgentIPC() {
       const result = await new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
           reject(new Error('Agent 请求超时 (120s)'));
-        }, 120_000);
+        }, 180_000);
 
         const doneUnsub = b.on('done', (data) => {
           clearTimeout(timer);
@@ -114,6 +123,7 @@ function registerAgentIPC() {
       });
 
       console.log('[agent-ipc] agent-chat DONE in', Date.now() - t0, 'ms');
+
       return result;
     } catch (err) {
       console.error('[agent-ipc] agent-chat 失败:', err);
@@ -127,6 +137,7 @@ function registerAgentIPC() {
   // agent-chat-group: 群聊 / 多 Expert 模式
   ipcMain.handle('agent-chat-group', async (event, { config, messages, conversationId, agentIds, mentionedIds, groupSettings }) => {
     const wc = event.sender;
+    if (config.provider === 'claude') { config.provider = 'deepseek'; config.model = 'deepseek-v4-pro'; }
     console.log('[agent-ipc] agent-chat-group request, provider:', config.provider, 'agents:', agentIds?.length);
 
     const unsubs = [];
@@ -144,8 +155,8 @@ function registerAgentIPC() {
 
       const result = await new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
-          reject(new Error('群聊请求超时 (120s)'));
-        }, 120_000);
+          reject(new Error('群聊请求超时 (180s)'));
+        }, 180_000);
 
         const doneUnsub = b.on('coordinator_done', (data) => {
           clearTimeout(timer);
@@ -417,6 +428,241 @@ function registerAgentIPC() {
       return { ok: true };
     } catch (err) { return { error: err.message }; }
   });
+
+  // ── Hatch Pet ──
+  ipcMain.handle('agent-hatch-pet', async (_event, { config, description }) => {
+    try {
+      await ensureAgentReady();
+      if (!config?.apiKey) return { error: '请先在设置中配置 API Key' };
+      const requestId = `req-hatch-${Date.now()}`;
+      b.send({ type: 'hatch_pet', request_id: requestId, description, config });
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ error: '生成超时 (30s)' }), 30_000);
+        const doneUnsub = b.on('hatch_done', (data) => {
+          clearTimeout(timer); doneUnsub(); errorUnsub();
+          resolve({ pet: data?.data?.pet || data?.pet });
+        });
+        const errorUnsub = b.on('hatch_error', (data) => {
+          clearTimeout(timer); doneUnsub(); errorUnsub();
+          resolve({ error: data?.data?.error || data?.error || '生成失败' });
+        });
+      });
+    } catch (err) { return { error: err.message }; }
+  });
+
+  ipcMain.handle('agent-get-hatched-pets', async () => {
+    try {
+      await ensureAgentReady();
+      const requestId = `req-hlist-${Date.now()}`;
+      b.send({ type: 'get_hatched_pets', request_id: requestId });
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ pets: [] }), 5_000);
+        const unsub = b.on('hatched_pets', (data) => {
+          clearTimeout(timer); unsub();
+          resolve({ pets: data?.data?.pets || data?.pets || [] });
+        });
+      });
+    } catch { return { pets: [] }; }
+  });
+
+  ipcMain.handle('agent-delete-hatched-pet', async (_event, { petId }) => {
+    try {
+      await ensureAgentReady();
+      b.send({ type: 'delete_hatched_pet', pet_id: petId });
+      return { ok: true };
+    } catch (err) { return { error: err.message }; }
+  });
+
+  ipcMain.handle('agent-generate-agent-pets', async (_event, { config }) => {
+    try {
+      await ensureAgentReady();
+      const requestId = `req-genpets-${Date.now()}`;
+      b.send({ type: 'generate_agent_pets', request_id: requestId, config });
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ error: '生成超时 (120s)' }), 120_000);
+        const doneUnsub = b.on('agent_pets_ready', (data) => {
+          clearTimeout(timer); doneUnsub(); errorUnsub();
+          resolve({ pets: data?.data?.pets || data?.pets || [] });
+        });
+        const errorUnsub = b.on('hatch_error', (data) => {
+          clearTimeout(timer); doneUnsub(); errorUnsub();
+          resolve({ error: data?.data?.error || data?.error || '生成失败' });
+        });
+      });
+    } catch (err) { return { error: err.message }; }
+  });
+
+  ipcMain.handle('agent-get-agent-pets', async () => {
+    try {
+      await ensureAgentReady();
+      const requestId = `req-apets-${Date.now()}`;
+      b.send({ type: 'get_agent_pets', request_id: requestId });
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ pets: [] }), 5_000);
+        const unsub = b.on('agent_pets', (data) => {
+          clearTimeout(timer); unsub();
+          resolve({ pets: data?.data?.pets || data?.pets || [] });
+        });
+      });
+    } catch { return { pets: [] }; }
+  });
+
+  // ── Codex Pet Import ──
+  ipcMain.handle('agent-import-codex-pet', async (_event, { url, filePath } = {}) => {
+    try {
+      await ensureAgentReady();
+      const requestId = `req-import-${Date.now()}`;
+      b.send({ type: 'import_codex_pet', request_id: requestId, url, file_path: filePath });
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ error: '导入超时' }), 120_000);
+        const doneUnsub = b.on('import_done', (data) => {
+          clearTimeout(timer); doneUnsub(); errUnsub();
+          resolve({ pet: data?.data?.pet || data?.pet });
+        });
+        const errUnsub = b.on('import_error', (data) => {
+          clearTimeout(timer); doneUnsub(); errUnsub();
+          resolve({ error: data?.data?.error || data?.error || '导入失败' });
+        });
+      });
+    } catch (err) { return { error: err.message }; }
+  });
+
+  ipcMain.handle('agent-get-imported-pets', async () => {
+    try {
+      await ensureAgentReady();
+      const requestId = `req-ipets-${Date.now()}`;
+      b.send({ type: 'get_imported_pets', request_id: requestId });
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ pets: [] }), 5_000);
+        const unsub = b.on('imported_pets', (data) => {
+          clearTimeout(timer); unsub();
+          resolve({ pets: data?.data?.pets || data?.pets || [] });
+        });
+      });
+    } catch { return { pets: [] }; }
+  });
+
+  ipcMain.handle('agent-delete-imported-pet', async (_event, petId) => {
+    try {
+      await ensureAgentReady();
+      const requestId = `req-delip-${Date.now()}`;
+      b.send({ type: 'delete_imported_pet', request_id: requestId, pet_id: petId });
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ deleted: false }), 5_000);
+        const unsub = b.on('import_deleted', (data) => {
+          clearTimeout(timer); unsub();
+          resolve({ deleted: true, pet_id: data?.data?.pet_id || data?.pet_id });
+        });
+      });
+    } catch (err) { return { deleted: false, error: err.message }; }
+  });
+
+  ipcMain.handle('agent-search-codex-pets', async (_event, query) => {
+    try {
+      await ensureAgentReady();
+      const requestId = `req-scp-${Date.now()}`;
+      b.send({ type: 'search_codex_pets', request_id: requestId, query });
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ pets: [] }), 10_000);
+        const doneUnsub = b.on('codex_search_results', (data) => {
+          clearTimeout(timer); doneUnsub(); errUnsub();
+          resolve({ pets: data?.data?.pets || data?.pets || [] });
+        });
+        const errUnsub = b.on('import_error', (data) => {
+          clearTimeout(timer); doneUnsub(); errUnsub();
+          resolve({ pets: [], error: data?.data?.error || data?.error });
+        });
+      });
+    } catch { return { pets: [] }; }
+  });
+
+  ipcMain.handle('agent-import-codex-slug', async (_event, slug) => {
+    try {
+      await ensureAgentReady();
+      const requestId = `req-imslug-${Date.now()}`;
+      b.send({ type: 'import_codex_slug', request_id: requestId, slug });
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ error: '导入超时' }), 120_000);
+        const doneUnsub = b.on('import_done', (data) => {
+          clearTimeout(timer); doneUnsub(); errUnsub();
+          resolve({ pet: data?.data?.pet || data?.pet });
+        });
+        const errUnsub = b.on('import_error', (data) => {
+          clearTimeout(timer); doneUnsub(); errUnsub();
+          resolve({ error: data?.data?.error || data?.error || '导入失败' });
+        });
+      });
+    } catch (err) { return { error: err.message }; }
+  });
+
+  ipcMain.handle('agent-file-comment', async (_event, { filename, config } = {}) => {
+    try {
+      await ensureAgentReady();
+      const requestId = `req-fc-${Date.now()}`;
+      b.send({ type: 'file_comment', request_id: requestId, filename, config });
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ comment: '嗯…还行吧' }), 8_000);
+        const unsub = b.on('file_comment_done', (data) => {
+          clearTimeout(timer); unsub();
+          resolve({ comment: data?.data?.comment || data?.comment || '哼！' });
+        });
+      });
+    } catch { return { comment: '懒得看了…' }; }
+  });
+
+  // ── Memory (Phase 3) ──
+  const MEMORY_CHANNELS = {
+    'memory-get-facts': { type: 'memory_get_facts', reply: 'memory_facts', key: 'facts' },
+    'memory-get-profile': { type: 'memory_get_profile', reply: 'memory_profile', key: 'profile' },
+    'memory-get-episodes': { type: 'memory_get_episodes', reply: 'memory_episodes', key: 'episodes' },
+    'memory-delete-fact': { type: 'memory_delete_fact', args: (factId) => ({ fact_id: factId }), reply: 'memory_fact_deleted' },
+    'memory-delete-profile': { type: 'memory_delete_profile', args: (key) => ({ key }), reply: 'memory_profile_deleted' },
+    'memory-delete-episode': { type: 'memory_delete_episode', args: (index) => ({ index }), reply: 'memory_episode_deleted' },
+    'memory-clear-all': { type: 'memory_clear_all', reply: 'memory_cleared' },
+    'memory-import': { type: 'memory_import', args: (data) => ({ data }), reply: 'memory_imported' },
+  };
+
+  for (const [channel, cfg] of Object.entries(MEMORY_CHANNELS)) {
+    ipcMain.handle(channel, async (_event, ...handlerArgs) => {
+      try {
+        await ensureAgentReady();
+        const requestId = `req-mem-${Date.now()}`;
+        const payload = cfg.args ? cfg.args(...handlerArgs) : {};
+        b.send({ type: cfg.type, request_id: requestId, ...payload });
+        return await new Promise((resolve) => {
+          const timer = setTimeout(() => resolve({ error: '超时' }), 10_000);
+          const unsub = b.on(cfg.reply, (data) => {
+            clearTimeout(timer); unsub();
+            if (data.type === 'error') resolve({ error: data?.data?.content });
+            else resolve({ [cfg.key || 'ok']: data?.data?.[cfg.key] || true });
+          });
+        });
+      } catch (err) { return { error: err.message }; }
+    });
+  }
+
+  // ── Personality (P0) ──
+  for (const [channel, cfg] of Object.entries({
+    'personality-get': { type: 'personality_get', reply: 'personality_data' },
+    'personality-set': { type: 'personality_set', args: (opts) => ({ dim: opts.dim, value: opts.value }), reply: 'personality_updated' },
+    'personality-set-batch': { type: 'personality_set_batch', args: (opts) => ({ dims: opts.dims }), reply: 'personality_updated' },
+  })) {
+    ipcMain.handle(channel, async (_event, ...args) => {
+      try {
+        await ensureAgentReady();
+        const payload = cfg.args ? cfg.args(...args) : {};
+        const requestId = `req-pers-${Date.now()}`;
+        b.send({ type: cfg.type, request_id: requestId, ...payload });
+        return await new Promise((resolve) => {
+          const timer = setTimeout(() => resolve({ error: '超时' }), 10_000);
+          const unsub = b.on(cfg.reply, (data) => {
+            clearTimeout(timer); unsub();
+            resolve(data?.data || data);
+          });
+        });
+      } catch (err) { return { error: err.message }; }
+    });
+  }
 
   console.log('[agent-ipc] IPC 处理器已注册 (Node.js Server + WebSocket)');
 }

@@ -64,10 +64,16 @@
           </div>
 
           <div class="setting-group">
-            <input v-model="apiKey" type="password" class="setting-input" placeholder="API Key" />
+            <label class="setting-label">主模型 API Key</label>
+            <input v-model="apiKey" type="password" class="setting-input" placeholder="sk-..." />
           </div>
           <div class="setting-group">
-            <input v-model="visionApiKey" type="password" class="setting-input" placeholder="视觉识别 Key（阿里云百炼，可选）" />
+            <label class="setting-label">视觉识别 API Key <small style="color:var(--text-muted);font-weight:400">阿里云百炼 Qwen-VL</small></label>
+            <input v-model="visionApiKey" type="password" class="setting-input" placeholder="sk-...（可选）" />
+          </div>
+          <div class="setting-group">
+            <label class="setting-label">语音合成 API Key <small style="color:var(--text-muted);font-weight:400">阿里云百炼 CosyVoice</small></label>
+            <input v-model="dashscopeApiKey" type="password" class="setting-input" placeholder="sk-...（可选）" />
           </div>
 
           <div v-if="provider === 'claude'" class="model-chips">
@@ -152,54 +158,11 @@
             <input v-model="sharedMemory" type="checkbox" class="setting-toggle" @change="toggleSharedMemory" />
           </label>
 
-          <div class="sect-label" style="margin-top:8px">桌宠</div>
-          <div class="pet-choices">
-            <button v-for="p in petOptions" :key="p.id" class="pet-choice-btn" :class="{ active: defaultPet === p.id }" @click="defaultPet = p.id">
-              <span class="pet-choice-icon">{{ p.icon }}</span>
-              <span class="pet-choice-name">{{ p.name }}</span>
-            </button>
-          </div>
-
-          <div class="setting-group">
-            <label class="setting-row">
-              <span class="setting-label">桌面行走</span>
-              <input v-model="walkEnabled" type="checkbox" class="setting-toggle" />
-            </label>
-          </div>
-          <div class="setting-group">
-            <label class="setting-row">
-              <span class="setting-label">拖放喂食</span>
-              <input v-model="feedEnabled" type="checkbox" class="setting-toggle" />
-            </label>
-          </div>
         </div>
 
         <!-- 系统 -->
         <div v-if="activeCat === 'system'" class="cat-content">
           <h3 class="cat-title">系统</h3>
-
-          <div class="setting-group">
-            <label class="setting-row">
-              <span class="setting-label">开机自启</span>
-              <input v-model="autoLaunch" type="checkbox" class="setting-toggle" />
-            </label>
-          </div>
-
-          <div class="setting-group">
-            <label class="setting-row">
-              <span class="setting-label">显示托盘图标</span>
-              <input v-model="showTray" type="checkbox" class="setting-toggle" />
-            </label>
-          </div>
-
-          <div class="setting-group">
-            <label class="setting-label">聊天字号</label>
-            <div class="segmented-row">
-              <button v-for="s in fontSizes" :key="s.value"
-                class="seg-btn" :class="{ active: chatFontSize === s.value }"
-                @click="chatFontSize = s.value">{{ s.label }}</button>
-            </div>
-          </div>
 
           <div class="setting-group">
             <label class="setting-label">外观</label>
@@ -215,6 +178,31 @@
         </div>
 
         <!-- 关于 -->
+        <!-- 人格 -->
+        <div v-if="activeCat === 'personality'" class="cat-content">
+          <PersonalityPanel :isDark="isDark" />
+        </div>
+
+        <!-- 记忆 -->
+        <div v-if="activeCat === 'memory'" class="cat-content">
+          <MemoryPanel :isDark="isDark" @refresh="refreshMemory" />
+        </div>
+
+        <!-- 音色 -->
+        <div v-if="activeCat === 'voice'" class="cat-content">
+          <VoiceClonePanel :isDark="isDark" />
+        </div>
+
+        <!-- 音乐 -->
+        <div v-if="activeCat === 'music'" class="cat-content cat-content-wide">
+          <MusicPanel />
+        </div>
+
+        <!-- 隐私 -->
+        <div v-if="activeCat === 'privacy'" class="cat-content">
+          <PrivacyPanel :isDark="isDark" />
+        </div>
+
         <div v-if="activeCat === 'about'" class="cat-content">
           <h3 class="cat-title">关于</h3>
 
@@ -256,14 +244,24 @@ import { ref, watch, onMounted } from 'vue'
 const emit = defineEmits(['done'])
 
 // 分类
-import { User, Zap, Bot, Settings, Info } from 'lucide-vue-next'
+import { User, Zap, Bot, Settings, Info, Brain, Shield, Mic, HardDrive, Music } from 'lucide-vue-next'
+import MemoryPanel from './MemoryPanel.vue'
+import PersonalityPanel from './PersonalityPanel.vue'
+import PrivacyPanel from './PrivacyPanel.vue'
+import VoiceClonePanel from './VoiceClonePanel.vue'
+import MusicPanel from './MusicPanel.vue'
 
 const categories = [
-  { id: 'profile', icon: User,  label: '用户',   color: '#6366F1' },
-  { id: 'backend', icon: Zap,   label: '服务商', color: '#3B82F6' },
-  { id: 'pet',     icon: Bot,   label: '助手',   color: '#EC4899' },
-  { id: 'system',  icon: Settings, label: '系统', color: '#6B7280' },
-  { id: 'about',   icon: Info,  label: '关于',   color: '#6B7280' },
+  { id: 'profile',     icon: User,     label: '用户',   color: '#6366F1' },
+  { id: 'backend',     icon: Zap,      label: '服务商', color: '#3B82F6' },
+  { id: 'personality', icon: Brain,    label: '人格',   color: '#8B5CF6' },
+  { id: 'pet',         icon: Bot,      label: '助手',   color: '#EC4899' },
+  { id: 'memory',      icon: HardDrive, label: '记忆',  color: '#F59E0B' },
+  { id: 'voice',       icon: Mic,      label: '音色',   color: '#10B981' },
+  { id: 'music',       icon: Music,    label: '音乐',   color: '#EC4141' },
+  { id: 'system',      icon: Settings, label: '系统',   color: '#6B7280' },
+  { id: 'privacy',     icon: Shield,   label: '隐私',   color: '#EF4444' },
+  { id: 'about',       icon: Info,     label: '关于',   color: '#6B7280' },
 ]
 const activeCat = ref('profile')
 
@@ -278,6 +276,7 @@ function onSidebarClick(e) {
 // 预加载配置文件（主进程文件）
 const apiKey = ref('')
 const visionApiKey = ref('')
+const dashscopeApiKey = ref('')
 const provider = ref('claude')
 
 // 异步加载已保存配置
@@ -286,6 +285,7 @@ const provider = ref('claude')
   if (cfg) {
     apiKey.value = cfg.apiKey || ''
     visionApiKey.value = cfg.visionApiKey || ''
+    dashscopeApiKey.value = cfg.dashscopeApiKey || ''
     provider.value = cfg.provider || 'claude'
     claudeModel.value = (cfg.provider === 'claude' && cfg.model) ? cfg.model : 'claude-sonnet-4-20250506'
     deepseekModel.value = (cfg.provider === 'deepseek' && cfg.model) ? cfg.model : 'deepseek-chat'
@@ -538,24 +538,6 @@ function toggleSharedMemory() {
   window.electronAPI?.agentToggleSharedMemory(sharedMemory.value)
 }
 
-// 宠物设置
-const petOptions = [
-  { id: 'glassesDog', icon: '🐶', name: '镜框小狗' },
-]
-const defaultPet = ref(localStorage.getItem('pet-default') || 'glassesDog')
-const walkEnabled = ref(localStorage.getItem('pet-walk') !== 'false')
-const feedEnabled = ref(localStorage.getItem('pet-feed') !== 'false')
-
-// 系统设置
-const autoLaunch = ref(localStorage.getItem('auto-launch') === 'true')
-const showTray = ref(localStorage.getItem('show-tray') !== 'false')
-const chatFontSize = ref(localStorage.getItem('chat-font-size') || 'standard')
-const fontSizes = [
-  { label: '小', value: 'small' },
-  { label: '标准', value: 'standard' },
-  { label: '大', value: 'large' },
-]
-
 const appTheme = ref(localStorage.getItem('app-theme') || 'system')
 const themes = [
   { label: '浅色', value: 'light', icon: '☀️' },
@@ -564,21 +546,20 @@ const themes = [
 ]
 
 // 持久化
-watch(defaultPet, v => localStorage.setItem('pet-default', v))
-watch(walkEnabled, v => localStorage.setItem('pet-walk', String(v)))
-watch(feedEnabled, v => localStorage.setItem('pet-feed', String(v)))
-watch(chatFontSize, v => localStorage.setItem('chat-font-size', v))
-watch(autoLaunch, v => localStorage.setItem('auto-launch', String(v)))
-watch(showTray, v => localStorage.setItem('show-tray', String(v)))
 watch(appTheme, v => {
   localStorage.setItem('app-theme', v)
   applyTheme(v)
 })
 
+const isDark = ref(false)
 function applyTheme(theme) {
   const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-  const isDark = theme === 'dark' || (theme === 'system' && prefersDark)
-  document.documentElement.classList.toggle('dark', isDark)
+  isDark.value = theme === 'dark' || (theme === 'system' && prefersDark)
+  document.documentElement.classList.toggle('dark', isDark.value)
+}
+
+function refreshMemory() {
+  memoryCount.value = parseInt(localStorage.getItem('memory-count') || '0', 10)
 }
 
 // 初始化主题
@@ -602,6 +583,7 @@ async function save() {
       provider: provider.value,
       apiKey: apiKey.value,
       visionApiKey: visionApiKey.value || '',
+      dashscopeApiKey: dashscopeApiKey.value || '',
       model,
       baseUrl: provider.value === 'openai' ? openaiBaseUrl.value : undefined,
     }
@@ -626,7 +608,7 @@ function doSave() {
   let model = claudeModel.value
   if (provider.value === 'deepseek') model = deepseekModel.value
   else if (provider.value === 'openai') model = openaiModel.value
-  const cfg = { provider: provider.value, apiKey: apiKey.value, visionApiKey: visionApiKey.value || '', model, baseUrl: provider.value === 'openai' ? openaiBaseUrl.value : undefined }
+  const cfg = { provider: provider.value, apiKey: apiKey.value, visionApiKey: visionApiKey.value || '', dashscopeApiKey: dashscopeApiKey.value || '', model, baseUrl: provider.value === 'openai' ? openaiBaseUrl.value : undefined }
   window.electronAPI?.saveConfig(cfg)
   localStorage.setItem('llm-config', JSON.stringify(cfg))
   localStorage.setItem('llm-provider', provider.value)
@@ -642,7 +624,7 @@ function autoSave() {
 // provider 和 model 切换立即保存（用户点击选择，不需要防抖）
 watch([provider, claudeModel, deepseekModel, openaiModel], () => doSave())
 // apiKey 等文本输入使用防抖
-watch([apiKey, openaiBaseUrl, visionApiKey], autoSave)
+watch([apiKey, openaiBaseUrl, visionApiKey, dashscopeApiKey], autoSave)
 
 async function testConn() {
   error.value = null; saving.value = true
@@ -655,6 +637,7 @@ async function testConn() {
       provider: provider.value,
       apiKey: apiKey.value,
       visionApiKey: visionApiKey.value || '',
+      dashscopeApiKey: dashscopeApiKey.value || '',
       model,
       baseUrl: provider.value === 'openai' ? openaiBaseUrl.value : undefined,
     })
@@ -670,6 +653,39 @@ onMounted(() => { loadAgents() })
 </script>
 
 <style scoped>
+
+/* Premium interaction refinements */
+button, .btn, .setting-btn, .model-chip, .conv-pill {
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+button:hover, .btn:hover, .setting-btn:hover:not(:disabled), .conv-pill:hover {
+  transform: translateY(-2px);
+}
+button:active, .btn:active, .setting-btn:active {
+  transform: translateY(0) scale(0.98) !important;
+}
+
+input, select, textarea, .setting-input, .setting-select, .setting-textarea, .input-field {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+input:focus, select:focus, textarea:focus, .setting-input:focus {
+  box-shadow: 0 0 0 6px rgba(109,124,255,0.03), 0 4px 16px rgba(0,0,0,0.12) !important;
+}
+
+.glass, .glass-card, .card-premium, [class*="card"] {
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+
+@keyframes premiumFadeIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes premiumScaleIn {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+
 /* Settings Panel — Unified Design System */
 
 .settings-backdrop {
@@ -711,6 +727,7 @@ onMounted(() => { loadAgents() })
 .settings-detail { flex: 1; overflow-y: auto; padding: 28px 32px; }
 
 .cat-content { display: flex; flex-direction: column; gap: 16px; max-width: 400px; }
+.cat-content-wide { max-width: 500px; }
 
 .cat-title { font-size: 18px; font-weight: 700; color: var(--text-primary); margin: 0; }
 .cat-desc { font-size: 12px; color: var(--text-muted); }
@@ -807,18 +824,6 @@ onMounted(() => { loadAgents() })
 .custom-form-hint b { color: var(--text-primary); }
 .custom-form-actions { display: flex; gap: 6px; }
 
-/* Pet */
-.pet-choices { display: flex; gap: 8px; flex-wrap: wrap; }
-.pet-choice-btn {
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
-  padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border);
-  background: var(--bg-card); cursor: pointer; transition: all 0.12s;
-}
-.pet-choice-btn:hover { background: var(--bg-sidebar-hover); }
-.pet-choice-btn.active { border-color: var(--accent); background: var(--accent-soft); }
-.pet-choice-icon { font-size: 28px; }
-.pet-choice-name { font-size: 11px; color: var(--text-secondary); }
-
 /* Toggle */
 .setting-row { display: flex; align-items: center; justify-content: space-between; }
 .setting-toggle {
@@ -833,18 +838,6 @@ onMounted(() => { loadAgents() })
 }
 .setting-toggle:checked { background: var(--accent); }
 .setting-toggle:checked::after { transform: translateX(18px); }
-
-/* Segmented */
-.segmented-row { display: flex; }
-.segmented-row .seg-btn {
-  padding: 6px 14px; border: 1px solid var(--border); background: var(--bg-card);
-  cursor: pointer; font-size: 12px; font-family: inherit; color: var(--text-secondary); transition: all 0.12s;
-}
-.segmented-row .seg-btn:first-child { border-radius: 8px 0 0 8px; }
-.segmented-row .seg-btn:last-child { border-radius: 0 8px 8px 0; }
-.segmented-row .seg-btn+.seg-btn { border-left: none; }
-.segmented-row .seg-btn:hover { background: var(--bg-sidebar-hover); }
-.segmented-row .seg-btn.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); font-weight: 600; }
 
 /* Theme */
 .theme-choices { display: flex; gap: 6px; }

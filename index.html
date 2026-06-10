@@ -4,8 +4,19 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..600&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300..600&family=Saira+Semi+Condensed:wght@500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
     <title>静屿</title>
+    <script>
+      // Apply theme BEFORE first paint. Priority: URL param > localStorage > system
+      (function(){
+        var p=new URLSearchParams(location.search);
+        var t=p.get('theme')||localStorage.getItem('app-theme')||'system';
+        if(t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme:dark)').matches))
+          document.documentElement.classList.add('dark')
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>

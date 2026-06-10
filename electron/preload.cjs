@@ -3,6 +3,24 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   openChat: () => ipcRenderer.invoke('open-chat'),
   closeChat: () => ipcRenderer.invoke('close-chat'),
+  hatchPet: (config, description) => ipcRenderer.invoke('agent-hatch-pet', { config, description }),
+  getHatchedPets: () => ipcRenderer.invoke('agent-get-hatched-pets'),
+  deleteHatchedPet: (petId) => ipcRenderer.invoke('agent-delete-hatched-pet', petId),
+  generateAgentPets: (config) => ipcRenderer.invoke('agent-generate-agent-pets', { config }),
+  getAgentPets: () => ipcRenderer.invoke('agent-get-agent-pets'),
+
+  // Codex Pet 导入
+  importCodexPet: (opts) => ipcRenderer.invoke('agent-import-codex-pet', opts),
+  importCodexSlug: (slug) => ipcRenderer.invoke('agent-import-codex-slug', slug),
+  searchCodexPets: (query) => ipcRenderer.invoke('agent-search-codex-pets', query),
+  getImportedPets: () => ipcRenderer.invoke('agent-get-imported-pets'),
+  deleteImportedPet: (petId) => ipcRenderer.invoke('agent-delete-imported-pet', petId),
+  pickCodexFile: () => ipcRenderer.invoke('pick-codex-file'),
+  fileComment: (filename, config) => ipcRenderer.invoke('agent-file-comment', { filename, config }),
+  readImportedSpritesheet: (petId) => ipcRenderer.invoke('read-imported-spritesheet', petId),
+  setTheme: (theme) => ipcRenderer.invoke('set-theme', theme),
+  minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
+  toggleFullscreen: () => ipcRenderer.invoke('toggle-fullscreen'),
   moveWindow: (dx, dy) => ipcRenderer.invoke('move-window', { dx, dy }),
   feedFile: (filePath) => ipcRenderer.invoke('feed-file', filePath),
   readFileContent: (filePath) => ipcRenderer.invoke('read-file-content', filePath),
@@ -65,11 +83,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('file-fed', listener)
     return () => ipcRenderer.removeListener('file-fed', listener)
   },
-  onWorkingState: (cb) => {
-    const listener = (_event, data) => cb(data)
-    ipcRenderer.on('working-state', listener)
-    return () => ipcRenderer.removeListener('working-state', listener)
-  },
   onLlmChunk: (cb) => {
     const listener = (_event, text) => cb(text)
     ipcRenderer.on('llm-chunk', listener)
@@ -126,6 +139,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const listener = (_event, data) => cb(data)
     ipcRenderer.on('agent-memory-updated', listener)
     return () => ipcRenderer.removeListener('agent-memory-updated', listener)
+  },
+  onMemoryConflict: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('memory-conflict', listener)
+    return () => ipcRenderer.removeListener('memory-conflict', listener)
   },
 
   // Coordinator / Group Chat 事件
@@ -189,6 +207,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('expert-error', listener)
     return () => ipcRenderer.removeListener('expert-error', listener)
   },
+  onHatchDone: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('hatch-done', listener)
+    return () => ipcRenderer.removeListener('hatch-done', listener)
+  },
+  onHatchError: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('hatch-error', listener)
+    return () => ipcRenderer.removeListener('hatch-error', listener)
+  },
+  onHatchedPets: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('hatched-pets', listener)
+    return () => ipcRenderer.removeListener('hatched-pets', listener)
+  },
   onPlanReady: (cb) => {
     const listener = (_event, data) => cb(data)
     ipcRenderer.on('plan-ready', listener)
@@ -199,4 +232,100 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('security-confirm-required', listener)
     return () => ipcRenderer.removeListener('security-confirm-required', listener)
   },
+
+  // ── Voice ──
+  voiceStartCosyVoice: () => ipcRenderer.invoke('voice-start-cosyvoice'),
+  voiceStopCosyVoice: () => ipcRenderer.invoke('voice-stop-cosyvoice'),
+  voiceCosyVoiceHealth: () => ipcRenderer.invoke('voice-cosyvoice-health'),
+  voiceTtsSynthesize: (text, emotion, voiceId, speed) =>
+    ipcRenderer.invoke('voice-tts-synthesize', { text, emotion, voiceId, speed }),
+  voiceSessionStart: () => ipcRenderer.invoke('voice-session-start'),
+  voiceSessionStop: () => ipcRenderer.invoke('voice-session-stop'),
+  voiceInterrupt: () => ipcRenderer.invoke('voice-interrupt'),
+  voiceGetVoices: () => ipcRenderer.invoke('voice-get-voices'),
+  saveRecording: (dateDir, filename, blob) =>
+    ipcRenderer.invoke('agent-save-recording', { dateDir, filename }),
+
+  onVoiceChunk: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('voice-chunk', listener)
+    return () => ipcRenderer.removeListener('voice-chunk', listener)
+  },
+  onCvTtsChunk: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('cv-tts-chunk', listener)
+    return () => ipcRenderer.removeListener('cv-tts-chunk', listener)
+  },
+  onTtsStart: (cb) => {
+    const l = (_event, d) => cb(d); ipcRenderer.on('tts-start', l)
+    return () => ipcRenderer.removeListener('tts-start', l)
+  },
+  onTtsStop: (cb) => {
+    const l = (_event, d) => cb(d); ipcRenderer.on('tts-stop', l)
+    return () => ipcRenderer.removeListener('tts-stop', l)
+  },
+  onVoiceState: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('voice-state', listener)
+    return () => ipcRenderer.removeListener('voice-state', listener)
+  },
+  onVoiceSubtitle: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('voice-subtitle', listener)
+    return () => ipcRenderer.removeListener('voice-subtitle', listener)
+  },
+
+  // ── Memory (Phase 3) ──
+  memoryGetFacts: () => ipcRenderer.invoke('memory-get-facts'),
+  memoryGetProfile: () => ipcRenderer.invoke('memory-get-profile'),
+  memoryGetEpisodes: () => ipcRenderer.invoke('memory-get-episodes'),
+  memoryDeleteFact: (factId) => ipcRenderer.invoke('memory-delete-fact', factId),
+  memoryDeleteProfile: (key) => ipcRenderer.invoke('memory-delete-profile', key),
+  memoryDeleteEpisode: (index) => ipcRenderer.invoke('memory-delete-episode', index),
+  memoryClearAll: () => ipcRenderer.invoke('memory-clear-all'),
+  memoryImport: (data) => ipcRenderer.invoke('memory-import', data),
+
+  // ── Personality (P0) ──
+  personalityGet: () => ipcRenderer.invoke('personality-get'),
+  personalitySet: (opts) => ipcRenderer.invoke('personality-set', opts),
+  personalitySetBatch: (opts) => ipcRenderer.invoke('personality-set-batch', opts),
+
+  // ── Voice Clone (P1) ──
+  voiceCloneVoice: (opts) => ipcRenderer.invoke('voice-clone-voice', opts),
+  voiceDeleteVoice: (voiceId) => ipcRenderer.invoke('voice-delete-voice', voiceId),
+
+  // ── 记忆图谱 ──
+  agentMemoryGetFacts: () => ipcRenderer.invoke('memory-get-facts'),
+  agentMemoryGetEpisodes: () => ipcRenderer.invoke('memory-get-episodes'),
+
+  // ── Battery ──
+  onBatteryProfile: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('battery-profile', listener)
+    return () => ipcRenderer.removeListener('battery-profile', listener)
+  },
+
+  // ── Window State ──
+  onWindowMaximizedChange: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('window-maximized-change', listener)
+    return () => ipcRenderer.removeListener('window-maximized-change', listener)
+  },
+
+  // ── Netease Music ──
+  neteaseLoginStatus: () => ipcRenderer.invoke('netease-login-status'),
+  neteaseQrCreate: () => ipcRenderer.invoke('netease-qr-create'),
+  neteaseQrCheck: (params) => ipcRenderer.invoke('netease-qr-check', params),
+  neteaseLogout: () => ipcRenderer.invoke('netease-logout'),
+  neteaseUserPlaylists: (params) => ipcRenderer.invoke('netease-user-playlists', params || {}),
+  neteaseLikedSongs: (params) => ipcRenderer.invoke('netease-liked-songs', params || {}),
+  neteaseDailySongs: () => ipcRenderer.invoke('netease-daily-songs'),
+  neteasePersonalFm: () => ipcRenderer.invoke('netease-personal-fm'),
+  neteaseIntelligenceList: (params) => ipcRenderer.invoke('netease-intelligence-list', params),
+  neteaseSearch: (params) => ipcRenderer.invoke('netease-search', params),
+  neteaseSongUrl: (params) => ipcRenderer.invoke('netease-song-url', params),
+  neteaseSongDetail: (params) => ipcRenderer.invoke('netease-song-detail', params),
+  neteaseLyric: (params) => ipcRenderer.invoke('netease-lyric', params),
+  neteaseRecommendPlaylists: () => ipcRenderer.invoke('netease-recommend-playlists'),
+  neteasePlaylistDetail: (params) => ipcRenderer.invoke('netease-playlist-detail', params),
 });

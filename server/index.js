@@ -29,6 +29,7 @@ import { WebSocketServer } from 'ws';
 import { Hono } from 'hono';
 import { v4 as uuidv4 } from 'uuid';
 import { createModuleLogger } from './lib/debug-log.js';
+import { VoiceSession, STATES } from './core/voice-session.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -43,16 +44,50 @@ let _AgentManager = null;
 let _SkillManager = null;
 let _PluginManager = null;
 let _SessionMemory = null;
+let _MemoryManager = null;
+let _UserProfile = null;
+let _SleepMode = null;
+let _EmotionTrend = null;
+let _StyleAdapter = null;
+let _Personality = null;
+let _KnowledgeGraph = null;
 
 const log = createModuleLogger('server');
 
 // ── Hono app (HTTP fallback) ──
 const app = new Hono();
 
+app.get('/pets/:id/spritesheet', (c) => {
+  const petId = c.req.param('id');
+  const petsDir = path.join(getPersistDir(), 'agent-pets', petId);
+  if (!fs.existsSync(petsDir)) return c.notFound();
+  // Find spritesheet file (png or webp)
+  const files = fs.readdirSync(petsDir).filter(f => f.startsWith('spritesheet'));
+  if (!files.length) return c.notFound();
+  const ext = path.extname(files[0]).slice(1);
+  const mime = ext === 'webp' ? 'image/webp' : 'image/png';
+  return new Response(fs.readFileSync(path.join(petsDir, files[0])), {
+    headers: { 'Content-Type': mime, 'Cache-Control': 'public, max-age=86400' },
+  });
+});
+
+app.get('/pets/imported/:id/spritesheet', (c) => {
+  const petId = c.req.param('id');
+  const petsDir = path.join(os.homedir(), '.ai-desktop-pet', 'imported-pets', petId);
+  if (!fs.existsSync(petsDir)) return c.notFound();
+  const files = fs.readdirSync(petsDir).filter(f => f.startsWith('spritesheet'));
+  if (!files.length) return c.notFound();
+  const ext = path.extname(files[0]).slice(1);
+  const mime = ext === 'webp' ? 'image/webp' : 'image/png';
+  return new Response(fs.readFileSync(path.join(petsDir, files[0])), {
+    headers: { 'Content-Type': mime, 'Cache-Control': 'public, max-age=86400' },
+  });
+});
+
 app.get('/health', (c) => c.json({ status: 'ok', uptime: process.uptime() }));
 
-app.get('/stats', (c) => {
-  const store = getMemoryStore();
+app.get('/stats', async (c) => {
+  const store = await getMemoryStore();
   return c.json({
     memoryCount: store ? store.count() : 0,
     uptime: process.uptime(),
@@ -184,43 +219,89 @@ const sessions = new Map();
 const pendingApprovals = new Map();
 
 // ── Lazy initializers ──
-function getFactStore() {
+async function getFactStore() {
   if (!_FactStore) {
     const { FactStore } = _require('./lib/memory/fact-store.js');
     _FactStore = new FactStore(getPersistDir());
+    await _FactStore.init();
   }
   return _FactStore;
 }
 
-function getMemoryStore() {
-  // Composite memory: FactStore (long-term) + MemoryTicker (recent window)
+async function getMemoryStore() {
   if (!_MemoryStore) {
+    const fs = await getFactStore();
+    // ── 向量搜索 (懒加载 + LRU 缓存) ──
+    let _vsCache = null, _vsReady = false;
+    const _embedLRU = new Map();
+    const _LRU_MAX = 50;
+
     _MemoryStore = {
-      factStore: getFactStore(),
-      ticker: null, // Phase 1: optional
-      search(query, k = 5) {
-        return this.factStore.search(query, k);
-      },
-      addFact(fact, tags = []) {
-        return this.factStore.add({ fact, tags });
-      },
-      count() {
-        return this.factStore.count();
-      },
-      clear() {
-        this.factStore.clear();
+      factStore: fs,
+      ticker: null,
+      search(query, k = 5) { return this.factStore.search(query, k); },
+      addFact(fact, tags = [], opts = {}) { return this.factStore.add({ fact, tags, confidence: opts.confidence, half_life_days: opts.half_life_days }); },
+      getAll() { return this.factStore.getAll(); },
+      count() { return this.factStore.count(); },
+      clear() { this.factStore.clear(); },
+      softDelete(fact) { return this.factStore.softDelete(fact); },
+      countDeleted() { return this.factStore.countDeleted?.() || 0; },
+
+      async vectorSearch(query, k = 5) {
+        if (!_vsReady) {
+          try {
+            const { getVectorSearch } = await import('./core/memory/vector-search.js');
+            _vsCache = getVectorSearch();
+            await _vsCache.init();
+            _vsReady = true;
+          } catch { _vsReady = true; }
+        }
+        if (_vsCache?.useTransformer && query?.length >= 2 && !/^\d+$/.test(query)) {
+          try {
+            const all = this.factStore.getAll?.() || [];
+            if (all.length < 3) return this.factStore.search(query, k);
+
+            // LRU 缓存：避免短时间重复编码
+            if (_embedLRU.has(query)) {
+              _embedLRU.delete(query); // move to end (LRU refresh)
+              _embedLRU.set(query, true);
+            } else {
+              if (_embedLRU.size >= _LRU_MAX) {
+                const first = _embedLRU.keys().next().value;
+                _embedLRU.delete(first);
+              }
+              _embedLRU.set(query, true); // mark as cached
+            }
+
+            const results = await _vsCache.searchInFacts(all, query, k);
+            if (results?.length) {
+              const now = Date.now();
+              return results.map(r => {
+                const days = (now - (r.created_at || now)) / 86400000;
+                const decay = Math.exp(-0.02 * Math.max(0, days));
+                return { ...r, score: Math.round((r.score || 0) * decay * 100) / 100, source: 'vector' };
+              });
+            }
+          } catch {}
+        }
+        // 降级: 返回带提示的结果
+        const kwResults = this.factStore.search(query, k).map(r => ({ ...r, source: 'keyword' }));
+        if (kwResults.length) {
+          kwResults.push({ fact: '(语义搜索暂不可用，以上结果基于关键词匹配)', tags: [], source: 'system' });
+        }
+        return kwResults;
       },
     };
-    // Inject into tools module (breaks circular dependency via memory-store-ref.js)
     import('./lib/tools/memory-store-ref.js').then(m => m.setMemoryStore(_MemoryStore));
+    import('./lib/tools/index.js').then(m => { if (m.setMusicMemoryStore) m.setMusicMemoryStore(_MemoryStore); });
   }
   return _MemoryStore;
 }
 
-function getRAGPipeline() {
+async function getRAGPipeline() {
   if (!_RAGPipeline) {
     const { RAGPipeline } = _require('./lib/rag/pipeline.js');
-    _RAGPipeline = new RAGPipeline(getPersistDir());
+    _RAGPipeline = await new RAGPipeline(getPersistDir()).ready();
   }
   return _RAGPipeline;
 }
@@ -252,7 +333,24 @@ async function handleAgentChat(ws, msg) {
 
   log.log(`agent_chat: agent=${agent?.name} provider=${agentConfig.provider} msgs=${messages.length}`);
 
-  const send = (type, data) => sendEvent(ws, type, data, requestId);
+  let _agentEmotion = 'neutral';
+  const send = (type, data) => {
+    if (type === 'done' && data?.content) {
+      const emoMatch = data.content.match(/^\[emotion:(\w+)\]\s*/);
+      if (emoMatch) {
+        _agentEmotion = emoMatch[1];
+      } else {
+        // 后备: 关键词推断情绪
+        const text = data.content.slice(0, 100);
+        if (/哈哈|🎉|开心|太棒|恭喜|nice|爽/i.test(text)) _agentEmotion = 'happy';
+        else if (/难过|😔|😢|伤心|心疼|节哀|抱抱/i.test(text)) _agentEmotion = 'sad';
+        else if (/😤|气死|无语|过分|投诉/i.test(text)) _agentEmotion = 'angry';
+        else if (/担心|焦虑|紧张|别怕|担心/i.test(text)) _agentEmotion = 'worried';
+        else if (/加油|你可以|相信|没问题|试试/i.test(text)) _agentEmotion = 'encouraging';
+      }
+    }
+    sendEvent(ws, type, data, requestId);
+  };
 
   const waitApproval = (toolName, toolArgs) => {
     return new Promise((resolve) => {
@@ -270,6 +368,10 @@ async function handleAgentChat(ws, msg) {
     if (!_runAgent) {
       const agentModule = await import('./core/agent.js');
       _runAgent = agentModule.runAgent;
+      // 设置冲突回调: 将冲突事件发送到前端
+      agentModule.onMemoryConflict((conflicts) => {
+        sendEvent(ws, 'memory_conflict', { conflicts });
+      });
     }
 
     // Inject per-agent personality
@@ -281,11 +383,68 @@ async function handleAgentChat(ws, msg) {
       config: agentConfig,
       messages: personalityMessages,
       convId,
-      memoryStore: _AgentManager?._getEffectiveStore?.(agent) || agent?.factStore || getMemoryStore(),
-      ragPipeline: getRAGPipeline(),
+      memoryStore: await getMemoryStore(),
+      ragPipeline: await getRAGPipeline(),
       sendEvent: send,
       waitApproval,
+      memoryManager: _MemoryManager || null,
+      userProfile: _UserProfile || null,
+      styleAdapter: _StyleAdapter || null,
+      personality: _Personality || null,
     });
+
+    // Post-chat: update memory, profile, style, knowledge graph
+    if (_MemoryManager) {
+      const lastUserMsg = messages[messages.length - 1];
+      if (lastUserMsg?.role === 'user') {
+        _MemoryManager.addTurn('user', lastUserMsg.content);
+      }
+    }
+    const userMsg = messages.find(m => m.role === 'user');
+    if (userMsg?.content) {
+      _StyleAdapter?.analyzeMessage(userMsg.content);
+      _Personality?.adapt('user_expanded');
+      // Ingest into knowledge graph (规则 + LLM 深度推理)
+      if (_KnowledgeGraph) {
+        const entities = _KnowledgeGraph.ingest(userMsg.content);
+        if (entities?.length) {
+          log.log(`知识图谱(规则): 抽取 ${entities.length} 个实体`);
+        }
+        // LLM 深度推理 (异步，不阻塞回复)
+        const { createLLM } = await import('./core/llm-client.js');
+        _KnowledgeGraph.ingestLLM(userMsg.content, createLLM({
+          provider: 'deepseek', model: 'deepseek-chat',
+          apiKey: config.apiKey, temperature: 0.3, maxTokens: 300,
+        })).then(result => {
+          if (result?.entities?.length || result?.relations?.length) {
+            log.log(`知识图谱(LLM): ${result.entities.length}实体, ${result.relations.length}关系, ${result.inferred.length}推理`);
+          }
+        }).catch(() => {});
+      }
+    }
+
+    // 记录本次对话的情绪趋势
+    if (_EmotionTrend && _agentEmotion) {
+      _EmotionTrend.record(_agentEmotion);
+    }
+
+    // 提取情境事件
+    if (_MemoryManager && messages.length >= 2) {
+      const lastMsgs = messages.slice(-6).map(m => `${m.role}: ${(m.content || '').slice(0, 300)}`).join('\n');
+      try {
+        const { createLLM } = await import('./core/llm-client.js');
+        const llm = createLLM({ provider: 'deepseek', model: 'deepseek-chat', apiKey: config.apiKey, temperature: 0.3, maxTokens: 200 });
+        const { content } = await llm.invoke([{ role: 'user', content: `描述这段对话中的关键情境或情绪变化（一句中文，不超过50字）:\n${lastMsgs}\n情境:` }]);
+        if (content && content.trim() && content.trim() !== '无') {
+          const { addEpisode } = await import('./core/memory/episodic.js');
+          addEpisode({
+            id: `ep_${Date.now()}`, timestamp: Date.now(),
+            context: { timeOfDay: new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening', dayOfWeek: new Date().getDay() },
+            content: { keyQuote: content.trim() }, importance: 5,
+          });
+        }
+      } catch {}
+    }
 
     // Notify heartbeat of user activity
     if (agent) {
@@ -326,8 +485,8 @@ async function handleAgentChatGroup(ws, msg) {
       groupSettings,
       agentManager: _AgentManager,
       sessionMemory: _SessionMemory,
-      memoryStore: getMemoryStore(),
-      ragPipeline: getRAGPipeline(),
+      memoryStore: await getMemoryStore(),
+      ragPipeline: await getRAGPipeline(),
       sendEvent: send,
     });
   } catch (err) {
@@ -358,6 +517,7 @@ wss.on('connection', (ws) => {
     }
 
     const msgType = msg.type || '';
+    let _voiceSessions; // 语音会话 Map，在此作用域声明避免 ReferenceError
 
     switch (msgType) {
       case 'agent_chat':
@@ -384,7 +544,7 @@ wss.on('connection', (ws) => {
       }
       case 'index_file': {
         try {
-          const rag = getRAGPipeline();
+          const rag = await getRAGPipeline();
           const chunks = rag.indexFile(msg.file_path || '');
           sendEvent(ws, 'file_indexed', { request_id: msg.request_id, chunks }, msg.request_id);
         } catch (err) {
@@ -393,29 +553,119 @@ wss.on('connection', (ws) => {
         break;
       }
       case 'search_rag': {
-        const rag = getRAGPipeline();
+        const rag = await getRAGPipeline();
         const results = rag.search(msg.query || '', msg.k || 5);
         sendEvent(ws, 'rag_results', { request_id: msg.request_id, results }, msg.request_id);
         break;
       }
       case 'get_memory_count': {
-        const store = getMemoryStore();
+        const store = await getMemoryStore();
         sendEvent(ws, 'memory_count', { request_id: msg.request_id, count: store.count() }, msg.request_id);
         break;
       }
       case 'clear_memory': {
-        getMemoryStore().clear();
+        (await getMemoryStore()).clear();
         sendEvent(ws, 'memory_cleared', { request_id: msg.request_id }, msg.request_id);
         break;
       }
+      case 'hatch_pet': {
+        const { hatchPet, validateHatch } = await import('./core/hatch.js');
+        const config = msg.config || {};
+        try {
+          const generated = await hatchPet(config, msg.description || '');
+          const pet = validateHatch(generated);
+          if (pet) {
+            // Save hatched pet to disk
+            const hatchDir = path.join(getPersistDir(), 'hatched');
+            fs.mkdirSync(hatchDir, { recursive: true });
+            fs.writeFileSync(path.join(hatchDir, `${pet.id}.json`), JSON.stringify(pet, null, 2));
+            sendEvent(ws, 'hatch_done', { request_id: msg.request_id, pet }, msg.request_id);
+          } else {
+            sendEvent(ws, 'hatch_error', { request_id: msg.request_id, error: '生成失败，LLM 返回格式不正确' }, msg.request_id);
+          }
+        } catch (err) {
+          sendEvent(ws, 'hatch_error', { request_id: msg.request_id, error: err.message }, msg.request_id);
+        }
+        break;
+      }
+      case 'get_hatched_pets': {
+        const hatchDir = path.join(getPersistDir(), 'hatched');
+        const pets = [];
+        try {
+          if (fs.existsSync(hatchDir)) {
+            for (const f of fs.readdirSync(hatchDir)) {
+              if (f.endsWith('.json')) {
+                try { pets.push(JSON.parse(fs.readFileSync(path.join(hatchDir, f), 'utf-8'))); } catch {}
+              }
+            }
+          }
+        } catch {}
+        sendEvent(ws, 'hatched_pets', { request_id: msg.request_id, pets }, msg.request_id);
+        break;
+      }
+      case 'delete_hatched_pet': {
+        const hatchDir = path.join(getPersistDir(), 'hatched');
+        try { fs.unlinkSync(path.join(hatchDir, `${msg.pet_id}.json`)); } catch {}
+        sendEvent(ws, 'hatch_deleted', { request_id: msg.request_id, pet_id: msg.pet_id }, msg.request_id);
+        break;
+      }
+      case 'generate_agent_pets': {
+        const { hatchSpritesheet } = await import('./core/hatch-spritesheet.js');
+        const { AGENT_PET_PRESETS } = await import('./core/agent-pets.js');
+        const imgConfig = msg.config || {};
+        if (!imgConfig.apiKey) {
+          sendEvent(ws, 'hatch_error', { request_id: msg.request_id, error: '请先配置百炼图片 API Key（设置 → 系统 → 图片生成 Key）' }, msg.request_id);
+          break;
+        }
+        const petsDir = path.join(getPersistDir(), 'agent-pets');
+        const results = [];
+        for (const preset of AGENT_PET_PRESETS) {
+          try {
+            sendEvent(ws, 'coordinator_info', { content: `正在生成 ${preset.name}...` }, msg.request_id);
+            const petDir = path.join(petsDir, preset.fixedId);
+            // Skip if already generated
+            if (fs.existsSync(path.join(petDir, 'pet.json'))) {
+              results.push(JSON.parse(fs.readFileSync(path.join(petDir, 'pet.json'), 'utf-8')));
+              continue;
+            }
+            const pet = await hatchSpritesheet(imgConfig, preset, petDir);
+            results.push(pet);
+          } catch (err) {
+            log.error(`生成 ${preset.name} 失败: ${err.message}`);
+            results.push({ ...preset, error: err.message });
+          }
+          // Rate limit: 百炼 ~10 req/min, wait 6s between
+          if (AGENT_PET_PRESETS.indexOf(preset) < AGENT_PET_PRESETS.length - 1) {
+            await new Promise(r => setTimeout(r, 6000));
+          }
+        }
+        sendEvent(ws, 'agent_pets_ready', { request_id: msg.request_id, pets: results }, msg.request_id);
+        break;
+      }
+      case 'get_agent_pets': {
+        const petsDir = path.join(getPersistDir(), 'agent-pets');
+        const pets = [];
+        try {
+          if (fs.existsSync(petsDir)) {
+            for (const d of fs.readdirSync(petsDir)) {
+              const metaPath = path.join(petsDir, d, 'pet.json');
+              if (fs.existsSync(metaPath)) {
+                try { pets.push(JSON.parse(fs.readFileSync(metaPath, 'utf-8'))); } catch {}
+              }
+            }
+          }
+        } catch {}
+        sendEvent(ws, 'agent_pets', { request_id: msg.request_id, pets }, msg.request_id);
+        break;
+      }
       case 'get_indexed_files': {
-        const rag = getRAGPipeline();
+        const rag = await getRAGPipeline();
         const files = rag.getIndexedFiles();
         sendEvent(ws, 'indexed_files', { request_id: msg.request_id, files }, msg.request_id);
         break;
       }
       case 'remove_file': {
-        const rag = getRAGPipeline();
+        const rag = await getRAGPipeline();
         rag.removeFile(msg.file_name || '');
         sendEvent(ws, 'file_removed', { request_id: msg.request_id }, msg.request_id);
         break;
@@ -597,13 +847,335 @@ wss.on('connection', (ws) => {
         sendEvent(ws, 'bye', { request_id: msg.request_id }, msg.request_id);
         ws.close();
         break;
+      case 'file_comment': {
+        (async () => {
+          try {
+            const { createLLM } = await import('./core/llm-client.js');
+            const filename = msg.filename || '文件';
+            const llm = createLLM({ ...(msg.config || {}), temperature: 0.9, maxTokens: 64, reasoningEffort: 'none' });
+            const systemPrompt = `你是一只傲娇的绿色小猫桌宠。看到主人拖来一个文件，用10个字以内简短评价。语气傲娇、可爱、带点嫌弃但其实是关心的。不要解释，只输出一句话评价。`;
+            const userMsg = `文件: ${filename}`;
+            let comment = '';
+            for await (const chunk of llm.stream([
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userMsg },
+            ])) {
+              if (chunk.content) comment += chunk.content;
+            }
+            sendEvent(ws, 'file_comment_done', { request_id: msg.request_id, comment: comment.trim().slice(0, 30) }, msg.request_id);
+          } catch (err) {
+            sendEvent(ws, 'file_comment_done', { request_id: msg.request_id, comment: `这什么呀…${msg.filename?.slice(0,8) || '文件'}？` }, msg.request_id);
+          }
+        })();
+        break;
+      }
+      // ── Voice ──
+      case 'voice_tts': {
+        (async () => {
+          try {
+            console.log('[server] voice_tts:', msg.text?.slice(0, 30));
+            const { getTTSManager } = await import('./core/tts.js');
+            const tts = getTTSManager();
+            console.log('[server] TTS mode:', tts.mode);
+            const chunks = [];
+            for await (const chunk of tts.synthesizeStream(msg.text || '', {
+              emotion: msg.emotion || 'neutral',
+              voiceId: msg.voice_id || 'default_female',
+              speed: msg.speed || 1.0,
+            })) {
+              chunks.push(chunk.audio);
+              // Stream chunks to client
+              sendEvent(ws, 'voice_tts_chunk', {
+                request_id: msg.request_id,
+                audio: chunk.audio.toString('base64'),
+                sample_rate: chunk.sampleRate,
+                engine: chunk.engine,
+              }, msg.request_id);
+            }
+            sendEvent(ws, 'voice_tts_done', {
+              request_id: msg.request_id,
+              engine: tts.mode,
+            }, msg.request_id);
+          } catch (err) {
+            log.error(`voice_tts 失败: ${err.message}`);
+            sendEvent(ws, 'voice_tts_done', {
+              request_id: msg.request_id,
+              error: err.message,
+            }, msg.request_id);
+          }
+        })();
+        break;
+      }
+
+      case 'voice_session_start': {
+        const sessionId = `vs_${Date.now()}`;
+        const session = new VoiceSession({
+          sessionId,
+          agentId: msg.agent_id || 'default',
+        });
+
+        // Store session
+        if (!_voiceSessions) _voiceSessions = new Map();
+        _voiceSessions.set(sessionId, session);
+
+        // Wire subtitle → client
+        session.onSubtitle = (data) => {
+          sendEvent(ws, 'voice_subtitle', data);
+        };
+
+        // Wire state changes → client
+        session.onStateChange = (prev, next) => {
+          sendEvent(ws, 'voice_state', { prev, state: next, session_id: sessionId });
+        };
+
+        // Wire error → client
+        session.onError = (err) => {
+          sendEvent(ws, 'voice_error', { ...err, session_id: sessionId });
+        };
+
+        sendEvent(ws, 'voice_session_ready', {
+          request_id: msg.request_id,
+          session_id: sessionId,
+          status: 'ready',
+        }, msg.request_id);
+        break;
+      }
+
+      case 'voice_session_stop': {
+        if (_voiceSessions) {
+          const sid = msg.session_id;
+          const session = sid ? _voiceSessions.get(sid) : null;
+          if (session) {
+            session.destroy();
+            _voiceSessions.delete(sid);
+          }
+        }
+        sendEvent(ws, 'voice_session_stopped', {
+          request_id: msg.request_id,
+        }, msg.request_id);
+        break;
+      }
+
+      case 'voice_interrupt': {
+        if (_voiceSessions && msg.session_id) {
+          const session = _voiceSessions.get(msg.session_id);
+          if (session) session.interrupt();
+        }
+        sendEvent(ws, 'voice_interrupted', {
+          request_id: msg.request_id,
+        }, msg.request_id);
+        break;
+      }
+
+      case 'voice_status': {
+        try {
+          const { getTTSManager } = await import('./core/tts.js');
+          const tts = getTTSManager();
+          const status = await tts.status();
+          sendEvent(ws, 'voice_status_result', {
+            request_id: msg.request_id,
+            ...status,
+          }, msg.request_id);
+        } catch (err) {
+          sendEvent(ws, 'voice_status_result', {
+            request_id: msg.request_id,
+            error: err.message,
+          }, msg.request_id);
+        }
+        break;
+      }
+
+      case 'voice_recover': {
+        try {
+          const { getTTSManager } = await import('./core/tts.js');
+          const tts = getTTSManager();
+          const result = await tts.attemptRecovery();
+          sendEvent(ws, 'voice_recover_result', {
+            request_id: msg.request_id,
+            ...result,
+          }, msg.request_id);
+        } catch (err) {
+          sendEvent(ws, 'voice_recover_result', {
+            request_id: msg.request_id,
+            error: err.message,
+          }, msg.request_id);
+        }
+        break;
+      }
+
+      // ── Memory management (Phase 3) ──
+      case 'memory_get_facts': {
+        const store = _MemoryManager?.factStore || (await getFactStore());
+        const rows = store?.getAll?.() || [];
+        const facts = rows.map(r => ({ fact: r.fact || r.content || r, tags: r.tags || [] }));
+        sendEvent(ws, 'memory_facts', { facts }, msg.request_id);
+        break;
+      }
+      case 'memory_get_profile': {
+        const profile = _UserProfile?.export?.() || {};
+        sendEvent(ws, 'memory_profile', { profile }, msg.request_id);
+        break;
+      }
+      case 'memory_get_episodes': {
+        const episodes = (_MemoryManager?.retrieval?.episodeStore?.getAll?.() || []);
+        sendEvent(ws, 'memory_episodes', { episodes }, msg.request_id);
+        break;
+      }
+      case 'memory_delete_fact': {
+        _MemoryManager?.factStore?.delete?.(msg.fact_id);
+        sendEvent(ws, 'memory_fact_deleted', {}, msg.request_id);
+        break;
+      }
+      case 'memory_delete_profile': {
+        _UserProfile?.delete?.(msg.key);
+        sendEvent(ws, 'memory_profile_deleted', {}, msg.request_id);
+        break;
+      }
+      case 'memory_delete_episode': {
+        _MemoryManager?.retrieval?.episodeStore?.delete?.(msg.index);
+        sendEvent(ws, 'memory_episode_deleted', {}, msg.request_id);
+        break;
+      }
+      case 'memory_clear_all': {
+        _MemoryManager?.factStore?.clear?.();
+        if (_UserProfile) _UserProfile.attributes = {};
+        _UserProfile?.save?.();
+        sendEvent(ws, 'memory_cleared', {}, msg.request_id);
+        break;
+      }
+      // ── Personality (P0) ──
+      case 'personality_get': {
+        sendEvent(ws, 'personality_data', { dims: _Personality?.getAll() || {} }, msg.request_id);
+        break;
+      }
+      case 'personality_set': {
+        _Personality?.set(msg.dim, msg.value);
+        sendEvent(ws, 'personality_updated', { dims: _Personality?.getAll() }, msg.request_id);
+        break;
+      }
+      case 'personality_set_batch': {
+        for (const [dim, value] of Object.entries(msg.dims || {})) {
+          _Personality?.set(dim, value);
+        }
+        sendEvent(ws, 'personality_updated', { dims: _Personality?.getAll() }, msg.request_id);
+        break;
+      }
+      case 'personality_adapt': {
+        _Personality?.adapt(msg.signal, msg.context || {});
+        sendEvent(ws, 'personality_updated', { dims: _Personality?.getAll() }, msg.request_id);
+        break;
+      }
+
+      case 'battery_profile': {
+        log.log(`电池模式: ${msg.level} (${Math.round((msg.batteryLevel || 1) * 100)}%)`);
+        if (_Personality) {
+          // Reduce curiosity on low battery to save processing
+          if (msg.level === 'low' || msg.level === 'critical') {
+            _Personality.set('curiosity', Math.max(0.1, _Personality.get('curiosity') - 0.2));
+          }
+        }
+        break;
+      }
+
+      // ── Agent routing ──
+      case 'agent_route': {
+        const { route } = await import('./core/agent-router.js');
+        const result = route(msg.text || '');
+        sendEvent(ws, 'agent_routed', result, msg.request_id);
+        break;
+      }
+      case 'agent_list_specialists': {
+        const { listAgents } = await import('./core/agent-router.js');
+        sendEvent(ws, 'agent_specialists', { agents: listAgents() }, msg.request_id);
+        break;
+      }
+
+      case 'memory_import': {
+        try {
+          if (msg.data?.profile) _UserProfile?.import?.(msg.data.profile);
+          if (msg.data?.facts) {
+            for (const f of msg.data.facts) {
+              _MemoryManager?.factStore?.add?.({ fact: f.fact || f, tags: f.tags || [] });
+            }
+          }
+          sendEvent(ws, 'memory_imported', {}, msg.request_id);
+        } catch (err) {
+          sendEvent(ws, 'error', { content: err.message }, msg.request_id);
+        }
+        break;
+      }
+
       case 'ping':
         sendEvent(ws, 'pong', {
           request_id: msg.request_id,
-          memory_count: getMemoryStore().count(),
-          indexed_files: getRAGPipeline().getIndexedFiles().length,
+          memory_count: (await getMemoryStore()).count(),
+          indexed_files: (await getRAGPipeline()).getIndexedFiles().length,
         }, msg.request_id);
         break;
+      // ── Codex Pet Import ──
+      case 'import_codex_pet': {
+        (async () => {
+          try {
+            const { importFromUrl, importFromZip } = await import('./core/codex-importer.js');
+            let pet;
+            if (msg.url) {
+              pet = await importFromUrl(msg.url);
+            } else if (msg.file_path) {
+              pet = await importFromZip(msg.file_path);
+            } else {
+              sendEvent(ws, 'import_error', { request_id: msg.request_id, error: '请提供 url 或 file_path' }, msg.request_id);
+              return;
+            }
+            sendEvent(ws, 'import_done', { request_id: msg.request_id, pet }, msg.request_id);
+          } catch (err) {
+            log.error(`Codex 导入失败: ${err.message}`);
+            sendEvent(ws, 'import_error', { request_id: msg.request_id, error: err.message }, msg.request_id);
+          }
+        })();
+        break;
+      }
+      case 'get_imported_pets': {
+        try {
+          const { listImportedPets } = await import('./core/codex-importer.js');
+          const pets = listImportedPets();
+          sendEvent(ws, 'imported_pets', { request_id: msg.request_id, pets }, msg.request_id);
+        } catch (err) {
+          sendEvent(ws, 'import_error', { request_id: msg.request_id, error: err.message }, msg.request_id);
+        }
+        break;
+      }
+      case 'delete_imported_pet': {
+        try {
+          const { deleteImportedPet } = await import('./core/codex-importer.js');
+          deleteImportedPet(msg.pet_id);
+          sendEvent(ws, 'import_deleted', { request_id: msg.request_id, pet_id: msg.pet_id }, msg.request_id);
+        } catch (err) {
+          sendEvent(ws, 'import_error', { request_id: msg.request_id, error: err.message }, msg.request_id);
+        }
+        break;
+      }
+      case 'search_codex_pets': {
+        try {
+          const { searchCodexPets } = await import('./core/codex-importer.js');
+          const results = await searchCodexPets(msg.query || '');
+          sendEvent(ws, 'codex_search_results', { request_id: msg.request_id, pets: results }, msg.request_id);
+        } catch (err) {
+          sendEvent(ws, 'import_error', { request_id: msg.request_id, error: err.message }, msg.request_id);
+        }
+        break;
+      }
+      case 'import_codex_slug': {
+        (async () => {
+          try {
+            const { importFromSlug } = await import('./core/codex-importer.js');
+            const pet = await importFromSlug(msg.slug);
+            sendEvent(ws, 'import_done', { request_id: msg.request_id, pet }, msg.request_id);
+          } catch (err) {
+            sendEvent(ws, 'import_error', { request_id: msg.request_id, error: err.message }, msg.request_id);
+          }
+        })();
+        break;
+      }
       default:
         log.warn(`未知消息类型: ${msgType}`);
     }
@@ -644,6 +1216,9 @@ setInterval(() => {
 async function initHub() {
   if (_Hub) return;
 
+  // 0. Init FactStore (async — sql.js WASM)
+  await getMemoryStore();
+
   // 1. AgentManager first (Hub depends on it)
   const agentsDir = path.join(getPersistDir(), 'agents');
   fs.mkdirSync(agentsDir, { recursive: true });
@@ -651,7 +1226,7 @@ async function initHub() {
   const { AgentManager: AM } = await import('./core/agent-manager.js');
   _AgentManager = new AM({
     agentsDir,
-    memoryStore: getMemoryStore(),
+    memoryStore: await getMemoryStore(),
     ragPipeline: getRAGPipeline(),
   });
 
@@ -668,7 +1243,7 @@ async function initHub() {
     await _AgentManager.createAgent({
       name: 'LU',
       character: 'glassesDog',
-      config: { provider: 'claude', model: 'claude-sonnet-4-20250506' },
+      config: { provider: 'claude', model: 'deepseek-v4-pro' },
     });
   }
 
@@ -736,7 +1311,7 @@ async function initHub() {
           _runAgent = agentModule.runAgent;
         }
         const activeAgent = _AgentManager?.getActiveAgent();
-        const config = activeAgent?.config || { provider: 'claude', model: 'claude-sonnet-4-20250506' };
+        const config = activeAgent?.config || { provider: 'claude', model: 'deepseek-v4-pro' };
         const messages = activeAgent
           ? activeAgent.injectPersonality([{ role: 'user', content: job.prompt }])
           : [{ role: 'system', content: job.prompt }];
@@ -746,8 +1321,8 @@ async function initHub() {
           config,
           messages,
           convId: `cron-${job.id}`,
-          memoryStore: _AgentManager?._getEffectiveStore?.(activeAgent) || activeAgent?.factStore || getMemoryStore(),
-          ragPipeline: getRAGPipeline(),
+          memoryStore: await getMemoryStore(),
+          ragPipeline: await getRAGPipeline(),
           sendEvent: (type, data) => {
             if (type === 'done') resultContent = data?.content || '';
           },
@@ -774,6 +1349,55 @@ async function initHub() {
   setAgentServices({ channelRouter, dmRouter, agentManager: _AgentManager });
 
   _Hub.start();
+
+  // ── Memory + Profile + Sleep Mode (Phase 3) ──
+  const { MemoryManager } = await import('./core/memory/index.js');
+  // 启动时执行一次衰减
+  setTimeout(async () => {
+    try {
+      const fs = _MemoryManager && _MemoryManager.factStore;
+      if (fs && typeof fs.decayAll === 'function') {
+        const n = fs.decayAll();
+        if (n > 0) log.log(`启动衰减: ${n} 条更新`);
+      }
+    } catch {}
+  }, 5000);
+  _MemoryManager = await new MemoryManager({
+    persistDir: getPersistDir(),
+    maxTurns: 20,
+  }).ready();
+
+  const { UserProfile } = await import('./core/user-profile.js');
+  _UserProfile = new UserProfile(getPersistDir());
+
+  const { SleepMode } = await import('./core/sleep-mode.js');
+  _SleepMode = new SleepMode({
+    memoryManager: _MemoryManager,
+    agentManager: _AgentManager,
+    llmConfig: { provider: process.env.SLEEP_LLM_PROVIDER || 'deepseek', model: 'deepseek-chat' },
+  });
+
+  // ── Emotion + Style (Phase 4) ──
+  const { EmotionTrend } = await import('./core/emotion-trend.js');
+  _EmotionTrend = new EmotionTrend(getPersistDir());
+
+  const { StyleAdapter } = await import('./core/style-adapter.js');
+  _StyleAdapter = new StyleAdapter(getPersistDir());
+
+  const { Personality } = await import('./core/personality.js');
+  _Personality = new Personality(getPersistDir());
+
+  const { KnowledgeGraph } = await import('./core/knowledge-graph.js');
+  _KnowledgeGraph = new KnowledgeGraph({ persistDir: getPersistDir() });
+  // 注入 KG 到记忆工具
+  import('./lib/tools/index.js').then(m => m.setKG?.(_KnowledgeGraph));
+
+  // Wire sleep mode to heartbeat events
+  _Hub.eventBus.subscribe('heartbeat_pulse', () => {
+    _SleepMode?.notifyActivity();
+    // Try to run sleep reflection
+    _SleepMode?.run().catch(() => {});
+  });
 
   // Add agent tools to tool registry
   const { getAgentTools } = await import('./lib/tools/agent-tools.js');
@@ -840,8 +1464,9 @@ const PORT = getPort();
 httpServer.listen(PORT, '127.0.0.1', async () => {
   log.log(`Agent Server 已启动: http://127.0.0.1:${PORT}`);
   _preload();
-  // Init Hub after server is up
-  await initHub();
+  // Init Hub non-blocking — server responds immediately,
+  // skills/plugins/heartbeats load in background
+  initHub().catch(err => log.error(`Hub 初始化失败: ${err.message}`));
 });
 
 // Graceful shutdown

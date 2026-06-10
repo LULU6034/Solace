@@ -73,6 +73,8 @@ class ServerBridge {
         AGENT_LOG_MODULES: '*',
         AGENT_LOG_LEVEL: 'log',
         NODE_ENV: isDev ? 'development' : 'production',
+        // HuggingFace 国内镜像（解决 bge-micro-v2 模型下载失败）
+        HF_ENDPOINT: 'https://hf-mirror.com',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,

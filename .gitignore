@@ -35,3 +35,8 @@ venv/
 # Agent data (local)
 agent-data/
 
+# AI models + source (large files)
+python/models/
+python/cosyvoice-src/
+python/checkpoints/
+

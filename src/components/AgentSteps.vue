@@ -86,6 +86,39 @@ function fmtInput(input) {
 </script>
 
 <style scoped>
+
+/* Premium interaction refinements */
+button, .btn, .setting-btn, .seg-btn, .model-chip, .conv-pill {
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+button:hover, .btn:hover, .setting-btn:hover:not(:disabled), .conv-pill:hover {
+  transform: translateY(-2px);
+}
+button:active, .btn:active, .setting-btn:active {
+  transform: translateY(0) scale(0.98) !important;
+}
+
+input, select, textarea, .setting-input, .setting-select, .setting-textarea, .input-field {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+input:focus, select:focus, textarea:focus, .setting-input:focus {
+  box-shadow: 0 0 0 6px rgba(109,124,255,0.03), 0 4px 16px rgba(0,0,0,0.12) !important;
+}
+
+.glass, .glass-card, .card-premium, [class*="card"] {
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+
+@keyframes premiumFadeIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes premiumScaleIn {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+
 .agent-steps {
   margin: 6px 0 10px;
   padding-left: 8px;

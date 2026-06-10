@@ -8,11 +8,13 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
   },
+  optimizeDeps: {
+    include: ['three'],
+  },
   build: {
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
-        pet: resolve(__dirname, 'pet.html'),
       },
     },
   },

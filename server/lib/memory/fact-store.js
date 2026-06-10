@@ -1,215 +1,348 @@
 /**
- * fact-store.js — 元事实存储（SQLite FTS5 + 标签）
+ * fact-store.js — 元事实存储（sql.js WASM，无需原生编译）
  *
- * 参考 OpenHanako 的 fact-store.js:
- *   - 每条记忆是一个"元事实"，附带标签和时间
- *   - FTS5 全文搜索 + 标签精确匹配
- *   - 不使用 embedding/向量/score/decay
+ * SQLite via sql.js (纯 JS/WASM，零原生依赖)。
+ * 替代 better-sqlite3，避免 node-gyp 编译问题。
  *
- * Schema:
- *   facts: id, fact, tags (JSON array), created_at, session_id
- *   facts_fts: FTS5 virtual table over facts.fact
+ * Schema: facts(id, fact, tags(JSON), created_at, session_id, user_id, confidence, half_life_days, deleted_at)
+ * 搜索: LIKE + 标签匹配（sql.js 不支持 FTS5）
+ * 回收站: deleted_at 非空 = 软删除，7天后物理清除
+ * 多用户: user_id 隔离
  */
-import Database from 'better-sqlite3';
 import path from 'node:path';
 import fs from 'node:fs';
 import { createModuleLogger } from '../debug-log.js';
 
 const log = createModuleLogger('fact-store');
 
-const SCHEMA_VERSION = 1;
+let _SQL = null; // cached sql.js instance
+
+async function _getSQL() {
+  if (!_SQL) {
+    const initSqlJs = (await import('sql.js')).default;
+    _SQL = await initSqlJs();
+  }
+  return _SQL;
+}
 
 export class FactStore {
-  constructor(persistDir) {
+  constructor(persistDir, userId = 'default') {
     this.persistDir = persistDir;
-    fs.mkdirSync(persistDir, { recursive: true });
-    this.dbPath = path.join(persistDir, 'facts.db');
-    this.db = new Database(this.dbPath);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('synchronous = NORMAL');
+    this.userId = userId;
+    this.dbPath = path.join(persistDir, `facts_${userId}.db`);
+    this.db = null;
+    this._ready = false;
+    // Init is async — call init() before use
+  }
+
+  async init() {
+    if (this._ready) return;
+    fs.mkdirSync(this.persistDir, { recursive: true });
+    const SQL = await _getSQL();
+
+    if (fs.existsSync(this.dbPath)) {
+      const buf = fs.readFileSync(this.dbPath);
+      this.db = new SQL.Database(buf);
+    } else {
+      this.db = new SQL.Database();
+    }
+
+    this.db.run('PRAGMA journal_mode = MEMORY');
+    this.db.run('PRAGMA synchronous = OFF');
     this._migrate();
+    this._cleanRecycleBin();
+    this._ready = true;
   }
 
   _migrate() {
-    const version = this.db.pragma('user_version', { simple: true });
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS facts (
+        id TEXT PRIMARY KEY,
+        fact TEXT NOT NULL,
+        tags TEXT NOT NULL DEFAULT '[]',
+        created_at INTEGER NOT NULL,
+        session_id TEXT,
+        user_id TEXT DEFAULT 'default',
+        confidence REAL DEFAULT 0.5,
+        half_life_days INTEGER DEFAULT 90,
+        deleted_at INTEGER DEFAULT NULL
+      )
+    `);
+    // 兼容旧表结构: 添加缺失列
+    for (const col of ['user_id', 'confidence', 'half_life_days', 'deleted_at']) {
+      try { this.db.run(`ALTER TABLE facts ADD COLUMN ${col} TEXT DEFAULT NULL`); } catch {}
+    }
+    // Create index for fast LIKE search
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_facts_created ON facts(created_at)');
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_facts_user ON facts(user_id)');
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_facts_deleted ON facts(deleted_at)');
+  }
 
-    if (version < 1) {
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS facts (
-          id TEXT PRIMARY KEY,
-          fact TEXT NOT NULL,
-          tags TEXT NOT NULL DEFAULT '[]',
-          created_at INTEGER NOT NULL,
-          session_id TEXT
-        );
-        CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
-          fact, content='facts', content_rowid='rowid'
-        );
-        CREATE TRIGGER IF NOT EXISTS facts_ai AFTER INSERT ON facts BEGIN
-          INSERT INTO facts_fts(rowid, fact) VALUES (new.rowid, new.fact);
-        END;
-        CREATE TRIGGER IF NOT EXISTS facts_ad AFTER DELETE ON facts BEGIN
-          INSERT INTO facts_fts(facts_fts, rowid, fact) VALUES('delete', old.rowid, old.fact);
-        END;
-        CREATE TRIGGER IF NOT EXISTS facts_au AFTER UPDATE ON facts BEGIN
-          INSERT INTO facts_fts(facts_fts, rowid, fact) VALUES('delete', old.rowid, old.fact);
-          INSERT INTO facts_fts(rowid, fact) VALUES (new.rowid, new.fact);
-        END;
-      `);
-      this.db.pragma('user_version = 1');
+  /** Persist to disk */
+  _save() {
+    if (!this.db) return;
+    try {
+      const data = this.db.export();
+      fs.writeFileSync(this.dbPath, Buffer.from(data));
+    } catch (e) {
+      log.warn(`保存失败: ${e.message}`);
     }
   }
 
-  /**
-   * Add a single fact
-   * @param {{ fact: string, tags?: string[], time?: string, session_id?: string }} entry
-   * @returns {number} new count
-   */
+  addFact(text, tags = [], metadata = {}) {
+    return this.add({ fact: text, tags, ...metadata });
+  }
+
   add(entry) {
+    if (!this._ready) throw new Error('FactStore not initialized — call init() first');
     const id = _mkId(entry.fact);
     const tags = JSON.stringify(entry.tags || []);
     const createdAt = entry.time ? new Date(entry.time).getTime() : Date.now();
+    const confidence = entry.confidence ?? 0.5;
+    const halfLifeDays = entry.half_life_days ?? (confidence > 0.8 ? 365 : confidence > 0.5 ? 90 : 30);
+    const uid = entry.user_id || this.userId;
 
-    // Upsert: if same fact text exists, update tags and time
-    const existing = this.db.prepare('SELECT id FROM facts WHERE fact = ?').get(entry.fact);
-    if (existing) {
-      this.db.prepare('UPDATE facts SET tags = ?, created_at = ? WHERE id = ?')
-        .run(tags, createdAt, existing.id);
-    } else {
-      this.db.prepare('INSERT INTO facts (id, fact, tags, created_at, session_id) VALUES (?, ?, ?, ?, ?)')
-        .run(id, entry.fact, tags, createdAt, entry.session_id || null);
-    }
-    return this.count();
-  }
-
-  /**
-   * Add batch of facts
-   */
-  addBatch(entries) {
-    const insert = this.db.prepare(
-      'INSERT OR REPLACE INTO facts (id, fact, tags, created_at, session_id) VALUES (?, ?, ?, ?, ?)'
+    const existing = this._queryOne(
+      'SELECT id, deleted_at FROM facts WHERE fact = ? AND user_id = ? AND deleted_at IS NULL',
+      [entry.fact, uid]
     );
-    const tx = this.db.transaction(() => {
-      for (const e of entries) {
-        insert.run(
-          _mkId(e.fact),
-          e.fact,
-          JSON.stringify(e.tags || []),
-          e.time ? new Date(e.time).getTime() : Date.now(),
-          e.session_id || null,
-        );
-      }
-    });
-    tx();
+    if (existing) {
+      this.db.run(
+        'UPDATE facts SET tags = ?, created_at = ?, confidence = ?, half_life_days = ? WHERE id = ?',
+        [tags, createdAt, confidence, halfLifeDays, existing.id]
+      );
+    } else {
+      this.db.run(
+        'INSERT INTO facts (id, fact, tags, created_at, session_id, user_id, confidence, half_life_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [id, entry.fact, tags, createdAt, entry.session_id || null, uid, confidence, halfLifeDays]
+      );
+    }
+    this._save();
     return this.count();
   }
 
-  /**
-   * Search facts
-   * - If query contains #tags, do tag exact match first
-   * - Then do FTS5 full-text search
-   * @param {string} query
-   * @param {number} k
-   * @returns {Array<{ fact: string, tags: string[], created_at: number }>}
-   */
+  addBatch(entries) {
+    if (!this._ready) throw new Error('FactStore not initialized');
+    const uid = this.userId;
+    for (const e of entries) {
+      const id = _mkId(e.fact);
+      const tags = JSON.stringify(e.tags || []);
+      const createdAt = e.time ? new Date(e.time).getTime() : Date.now();
+      const confidence = e.confidence ?? 0.5;
+      const halfLifeDays = e.half_life_days ?? 90;
+      this.db.run(
+        'INSERT OR REPLACE INTO facts (id, fact, tags, created_at, session_id, user_id, confidence, half_life_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [id, e.fact, tags, createdAt, e.session_id || null, uid, confidence, halfLifeDays]
+      );
+    }
+    this._save();
+    return this.count();
+  }
+
   search(query, k = 5) {
+    if (!this._ready) return [];
     const normalized = String(query || '').trim();
     if (!normalized || this.count() === 0) return [];
 
-    // Extract #tags from query
+    const uid = this.userId;
     const tagRe = /#(\S+)/g;
     const tags = [];
     let m;
-    while ((m = tagRe.exec(normalized)) !== null) {
-      tags.push(m[1]);
-    }
+    while ((m = tagRe.exec(normalized)) !== null) tags.push(m[1]);
     const searchText = normalized.replace(tagRe, '').trim();
 
     let results = [];
+    const baseWhere = 'deleted_at IS NULL AND user_id = ?';
 
     if (tags.length > 0) {
-      // Tag match: find facts whose tags JSON contains all requested tags
-      let tagSql = 'SELECT fact, tags, created_at FROM facts WHERE ';
-      const tagConditions = tags.map(() => `tags LIKE ?`);
-      tagSql += tagConditions.join(' AND ');
-      tagSql += ' ORDER BY created_at DESC LIMIT ?';
-
-      const tagParams = tags.map(t => `%"${t}"%`);
-      tagParams.push(k);
-      results = this.db.prepare(tagSql).all(...tagParams);
+      const conds = tags.map(() => `tags LIKE ?`).join(' AND ');
+      const params = [uid, ...tags.map(t => `%"${t}"%`), k];
+      results = this._queryAll(
+        `SELECT fact, tags, created_at, confidence, half_life_days FROM facts WHERE ${baseWhere} AND (${conds}) ORDER BY created_at DESC LIMIT ?`,
+        params
+      );
     }
 
     if (results.length < k && searchText) {
-      // FTS5 full-text search to fill remaining
-      try {
-        const existingIds = new Set(results.map(r => r.fact));
-        const ftsRows = this.db.prepare(
-          'SELECT f.fact, f.tags, f.created_at FROM facts f ' +
-          'JOIN facts_fts fts ON f.rowid = fts.rowid ' +
-          'WHERE facts_fts MATCH ? ORDER BY rank LIMIT ?'
-        ).all(searchText.replace(/[^\w一-鿿]/g, ' ').split(/\s+/).filter(Boolean).join(' OR '), k);
-
-        for (const row of ftsRows) {
-          if (!existingIds.has(row.fact)) {
-            results.push(row);
-          }
-        }
-      } catch {
-        // FTS5 query syntax error — fall back to LIKE
-        const likeRows = this.db.prepare(
-          'SELECT fact, tags, created_at FROM facts WHERE fact LIKE ? ORDER BY created_at DESC LIMIT ?'
-        ).all(`%${searchText}%`, k - results.length);
-        for (const row of likeRows) {
-          if (!results.find(r => r.fact === row.fact)) {
-            results.push(row);
-          }
-        }
+      const existingIds = new Set(results.map(r => r.fact));
+      const likeResults = this._queryAll(
+        `SELECT fact, tags, created_at, confidence, half_life_days FROM facts WHERE ${baseWhere} AND fact LIKE ? ORDER BY created_at DESC LIMIT ?`,
+        [uid, `%${searchText}%`, k - results.length]
+      );
+      for (const row of likeResults) {
+        if (!existingIds.has(row.fact)) results.push(row);
       }
     }
 
-    // If no results, return most recent
     if (results.length === 0 && (tags.length > 0 || searchText)) {
-      results = this.db.prepare(
-        'SELECT fact, tags, created_at FROM facts ORDER BY created_at DESC LIMIT ?'
-      ).all(k);
+      results = this._queryAll(
+        `SELECT fact, tags, created_at, confidence, half_life_days FROM facts WHERE ${baseWhere} ORDER BY created_at DESC LIMIT ?`, [uid, k]
+      );
     }
 
     return results.map(r => ({
       fact: r.fact,
       tags: _safeJsonParse(r.tags) || [],
       created_at: r.created_at,
+      confidence: r.confidence ?? 0.5,
+      half_life_days: r.half_life_days ?? 90,
     }));
   }
 
-  /**
-   * Get facts since a time
-   */
-  getSince(timestamp, limit = 100) {
-    return this.db.prepare(
-      'SELECT fact, tags, created_at FROM facts WHERE created_at > ? ORDER BY created_at DESC LIMIT ?'
-    ).all(timestamp, limit).map(r => ({
+  getAll() {
+    if (!this._ready) return [];
+    const uid = this.userId;
+    return this._queryAll(
+      'SELECT fact, tags, created_at, confidence, half_life_days FROM facts WHERE deleted_at IS NULL AND user_id = ? ORDER BY created_at DESC LIMIT 100',
+      [uid]
+    ).map(r => ({
       fact: r.fact,
       tags: _safeJsonParse(r.tags) || [],
       created_at: r.created_at,
+      confidence: r.confidence ?? 0.5,
+      half_life_days: r.half_life_days ?? 90,
     }));
   }
 
+  // ── 回收站 (P2) ──
+  /** 软删除 (移入回收站) */
+  softDelete(factText) {
+    if (!this._ready) return false;
+    const uid = this.userId;
+    const existing = this._queryOne(
+      'SELECT id FROM facts WHERE fact = ? AND user_id = ? AND deleted_at IS NULL',
+      [factText, uid]
+    );
+    if (!existing) return false;
+    this.db.run('UPDATE facts SET deleted_at = ? WHERE id = ?', [Date.now(), existing.id]);
+    this._save();
+    log.log(`回收站: "${factText.slice(0, 40)}" (7天后清除)`);
+    return true;
+  }
+
+  /** 从回收站恢复 */
+  restoreFromBin(factText) {
+    if (!this._ready) return false;
+    const uid = this.userId;
+    const existing = this._queryOne(
+      'SELECT id FROM facts WHERE fact = ? AND user_id = ? AND deleted_at IS NOT NULL',
+      [factText, uid]
+    );
+    if (!existing) return false;
+    this.db.run('UPDATE facts SET deleted_at = NULL WHERE id = ?', [existing.id]);
+    this._save();
+    return true;
+  }
+
+  /** 列出回收站内容 */
+  listRecycleBin() {
+    if (!this._ready) return [];
+    const uid = this.userId;
+    return this._queryAll(
+      'SELECT fact, tags, created_at, deleted_at, confidence FROM facts WHERE deleted_at IS NOT NULL AND user_id = ? ORDER BY deleted_at DESC LIMIT 50',
+      [uid]
+    ).map(r => ({
+      fact: r.fact,
+      tags: _safeJsonParse(r.tags) || [],
+      created_at: r.created_at,
+      deleted_at: r.deleted_at,
+      days_left: Math.max(0, 7 - Math.floor((Date.now() - r.deleted_at) / 86400000)),
+    }));
+  }
+
+  /** 清理超过 7 天的回收站条目 */
+  _cleanRecycleBin() {
+    if (!this._ready) return;
+    const cutoff = Date.now() - 7 * 86400000;
+    const result = this.db.run('DELETE FROM facts WHERE deleted_at IS NOT NULL AND deleted_at < ?', [cutoff]);
+    if (result) this._save();
+  }
+
+  delete(id) {
+    if (!this._ready) return;
+    // 硬删除（跳过回收站，用于用户主动清空）
+    this.db.run('DELETE FROM facts WHERE id = ?', [id]);
+    this._save();
+  }
+
+  /** 衰减检查：删除半衰期已过的低置信度事实（移入回收站） */
+  decayCheck() {
+    if (!this._ready) return 0;
+    const now = Date.now();
+    const rows = this._queryAll(
+      'SELECT id, fact, created_at, confidence, half_life_days FROM facts WHERE deleted_at IS NULL AND user_id = ?',
+      [this.userId]
+    );
+    let decayed = 0;
+    for (const row of rows) {
+      const ageMs = now - row.created_at;
+      const halfLifeMs = (row.half_life_days || 90) * 86400000;
+      // 超过 2 个半衰期 + 低置信度 → 衰减
+      if (ageMs > halfLifeMs * 2 && (row.confidence || 0.5) < 0.6) {
+        this.db.run('UPDATE facts SET deleted_at = ? WHERE id = ?', [now, row.id]);
+        decayed++;
+      }
+    }
+    if (decayed > 0) { this._save(); log.log(`衰减: ${decayed} 条移入回收站`); }
+    return decayed;
+  }
+
   count() {
-    const row = this.db.prepare('SELECT COUNT(*) as c FROM facts').get();
-    return row?.c || 0;
+    if (!this._ready) return 0;
+    const uid = this.userId;
+    const r = this._queryOne('SELECT COUNT(*) as c FROM facts WHERE deleted_at IS NULL AND user_id = ?', [uid]);
+    return r?.c || 0;
   }
 
   clear() {
-    this.db.prepare('DELETE FROM facts').run();
+    if (!this._ready) return;
+    const uid = this.userId;
+    this.db.run('DELETE FROM facts WHERE user_id = ?', [uid]);
+    this._save();
   }
 
   close() {
     this.db?.close();
     this.db = null;
+    this._ready = false;
+  }
+
+  // ── sql.js helpers ──
+
+  _queryOne(sql, params = []) {
+    try {
+      const stmt = this.db.prepare(sql);
+      stmt.bind(params);
+      if (stmt.step()) {
+        const row = stmt.getAsObject();
+        stmt.free();
+        return row;
+      }
+      stmt.free();
+      return null;
+    } catch (e) {
+      log.warn(`SQL error: ${e.message}`);
+      return null;
+    }
+  }
+
+  _queryAll(sql, params = []) {
+    try {
+      const stmt = this.db.prepare(sql);
+      stmt.bind(params);
+      const rows = [];
+      while (stmt.step()) {
+        rows.push(stmt.getAsObject());
+      }
+      stmt.free();
+      return rows;
+    } catch (e) {
+      log.warn(`SQL error: ${e.message}`);
+      return [];
+    }
   }
 }
 
-// ── Helpers ──
 function _mkId(fact) {
   let hash = 0;
   for (let i = 0; i < fact.length; i++) {
@@ -221,9 +354,5 @@ function _mkId(fact) {
 }
 
 function _safeJsonParse(str) {
-  try {
-    return JSON.parse(str);
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(str); } catch { return null; }
 }

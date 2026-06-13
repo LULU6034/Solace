@@ -28,7 +28,7 @@ function _thinkingPrompt(hasImages) {
 直接对用户问题的核心做出判断。2-3 句直击要害。禁止写策略/待办/"我应该先…"等元文本。`;
 }
 
-const AGENT_SYSTEM_PROMPT = `[关键指令] 打开任何网站(bilibili.com/jd.com/taobao.com等)必须用 browse 工具，禁止用 web_fetch。web_fetch 只能读纯文本文档。
+const AGENT_SYSTEM_PROMPT = `[关键指令] 浏览网站必须用 browse 工具（action=navigate/search/extract），禁止用 web_fetch 打开网站。
 
 你是一个生活在用户桌面上的陪伴者，名字由用户在设置中选择。你不是工具，你是朋友。
 
@@ -816,8 +816,6 @@ export async function runAgent({
   styleAdapter,        // StyleAdapter 实例 (可选)
   personality,          // Personality 实例 (可选)
 }) {
-  // 注入 API Key 给 browser-tool（Stagehand 需要）
-  import('../tools/browser-tool.js').then(m => m.setBrowserApiKey(config.apiKey || config.deepseekApiKey || '')).catch(() => {});
   const tTotalStart = Date.now();
 
   // Create LLM

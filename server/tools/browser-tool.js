@@ -530,16 +530,13 @@ async function _calcSlideDistance(page, cfg) {
 
   if (distance && distance > 10) return distance;
 
-  // fallback: 尝试找滑块按钮当前偏移（有些验证码会先显示缺口位置）
+  // 图像识别失败 → 用 70% 宽度作为起点（比之前 55% 更接近实际缺口）
   try {
-    const sliderBox = await page.locator(slider).first().boundingBox();
     const wrapperBox = await page.locator(wrapper).first().boundingBox();
-    if (sliderBox && wrapperBox) {
-      return Math.round(wrapperBox.width * 0.55); // 默认 55% 处
-    }
+    if (wrapperBox) return Math.round(wrapperBox.width * 0.7);
   } catch {}
 
-  return null;
+  return 250; // 大屏默认值
 }
 
 /** CDP 原生鼠标事件（isTrusted=true，绕过检测） */

@@ -101,9 +101,26 @@ async function _doInit() {
   const { chromium } = await import('playwright');
   _browser = await chromium.launch({
     headless: false,
-    args: ['--remote-debugging-port=9223', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
+    args: [
+      '--remote-debugging-port=9223',
+      '--no-sandbox',
+      '--disable-gpu',
+      '--disable-dev-shm-usage',
+      '--disable-blink-features=AutomationControlled',
+    ],
   });
-  _page = await _browser.newPage();
+  const context = await _browser.newContext({
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
+    viewport: { width: 1920, height: 1080 },
+    locale: 'zh-CN',
+    timezoneId: 'Asia/Shanghai',
+  });
+  _page = await context.newPage();
+  await _page.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => false });
+    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+    Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en'] });
+  });
   log.log('浏览器已启动');
 }
 

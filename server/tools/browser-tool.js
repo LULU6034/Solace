@@ -108,6 +108,10 @@ export async function closeBrowser() {
   }
 }
 
+/** 设置 API Key（server 进程启动后由 agent 注入） */
+let _browserApiKey = process.env.DEEPSEEK_API_KEY || '';
+export function setBrowserApiKey(key) { _browserApiKey = key; }
+
 /** 浏览器模块是否可用（Stagehand 已安装即可，使用时懒加载） */
 export function isBrowserReady() {
   try {
@@ -138,7 +142,7 @@ async function _doInit() {
       modelName: process.env.LLM_MODEL || 'deepseek-chat',
       modelClientOptions: {
         baseURL: process.env.LLM_BASE_URL || 'https://api.deepseek.com/v1',
-        apiKey: process.env.DEEPSEEK_API_KEY || '',
+        apiKey: _browserApiKey,
       },
     });
     // 30 秒超时，避免卡死

@@ -38,10 +38,11 @@ class ServerBridge {
   /**
    * Start the Node.js Agent Server as a child process
    */
-  async start() {
+  async start(apiKey) {
     if (this.ready) return true;
     // Prevent concurrent start calls
     if (this._startPromise) return this._startPromise;
+    if (apiKey) this._deepseekApiKey = apiKey;
 
     this._startPromise = this._doStart();
     const result = await this._startPromise;

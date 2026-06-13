@@ -816,6 +816,8 @@ export async function runAgent({
   styleAdapter,        // StyleAdapter 实例 (可选)
   personality,          // Personality 实例 (可选)
 }) {
+  // 注入 API Key 给 browser-tool（Stagehand 需要）
+  import('../tools/browser-tool.js').then(m => m.setBrowserApiKey(config.apiKey || config.deepseekApiKey || '')).catch(() => {});
   const tTotalStart = Date.now();
 
   // Create LLM

@@ -59,6 +59,7 @@ export const browseTool = {
           // 搜视频站 → 自动点第一个结果播放
           await _autoClickPlay(page);
         }
+      }
 
       // ═══ click: 点击元素 ═══
       if (action === 'click') {

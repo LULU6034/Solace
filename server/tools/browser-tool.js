@@ -64,6 +64,7 @@ export const browseTool = {
 
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
       if (action === 'search') await new Promise(r => setTimeout(r, 1500));
+      await _dismissAds(page);
 
       const title = await page.title();
       const text = await page.evaluate(() => document.body.innerText);
@@ -135,4 +136,36 @@ function _releasePage() {
   _busy = false;
   const next = _pendingQueue.shift();
   if (next) next();
+}
+
+/** 自动关闭常见广告弹窗 */
+async function _dismissAds(page) {
+  try {
+    // 常见关闭按钮：X号、关闭、跳过、不再提示、我知道了
+    const selectors = [
+      '.close', '.dialog-close', '.modal-close', '.popup-close', '.layer-close',
+      '[class*="close"]', '[class*="Close"]',
+      'span:has-text("×")', 'span:has-text("✕")',
+      'a:has-text("关闭")', 'button:has-text("关闭")',
+      'span:has-text("跳过")', 'button:has-text("跳过")',
+      'span:has-text("不再提示")', 'button:has-text("我知道了")',
+      'span:has-text("知道")', 'button:has-text("确定")',
+      '.bili-ad-close',                  // B站
+      '.s-bottom-close',                 // 百度
+      '.dialog-close', '.J_dialog_close', // 京东
+      '.rax-dialog-close',               // 淘宝
+    ];
+    for (const sel of selectors) {
+      try {
+        const el = page.locator(sel).first();
+        if (await el.isVisible({ timeout: 500 }).catch(() => false)) {
+          await el.click({ timeout: 1000 }).catch(() => {});
+          log.log('关闭弹窗:', sel);
+          await new Promise(r => setTimeout(r, 300));
+        }
+      } catch {}
+    }
+    // 按 Escape 关闭可能的模态框
+    await page.keyboard.press('Escape').catch(() => {});
+  } catch {}
 }

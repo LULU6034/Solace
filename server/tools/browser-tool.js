@@ -382,36 +382,65 @@ async function _calcSlideDistance(page, cfg) {
   return null;
 }
 
-/** 模拟人类滑动轨迹 */
+/** 模拟人类滑动轨迹（高级伪装） */
 async function _humanSlide(page, startX, startY, distance) {
-  // 生成人类滑动轨迹：加速 → 匀速 → 减速 + 微抖动
-  const steps = [];
-  const totalSteps = 30 + Math.floor(Math.random() * 15);
-  let current = 0;
+  // 1. 初始犹豫（200-500ms）
+  await new Promise(r => setTimeout(r, 200 + Math.random() * 300));
+
+  // 2. 移动到滑块
+  await page.mouse.move(startX, startY, { steps: 3 });
+  await new Promise(r => setTimeout(r, 50 + Math.random() * 80));
+
+  // 3. 按下
+  await page.mouse.down();
+
+  // 4. 生成轨迹：快→慢→微调→停
+  const totalSteps = 50 + Math.floor(Math.random() * 20);
+  const points = [];
+  let pos = 0;
 
   for (let i = 0; i < totalSteps; i++) {
-    const progress = i / totalSteps;
-    // 先快后慢的 easing
-    const eased = progress < 0.7
-      ? 2 * progress * progress                          // 加速阶段
-      : 1 - Math.pow(-2 * progress + 2, 2) / 2;         // 减速阶段
-    const pos = eased * distance;
-    steps.push({
-      x: startX + pos + (Math.random() - 0.5) * 2,      // ±1px 抖动
-      y: startY + (Math.random() - 0.5) * 3,            // ±1.5px 垂直抖动
-      delay: 5 + Math.random() * 15,                     // 5-20ms 间隔
+    const t = i / totalSteps;
+    // 真实人类：先快后慢，最后1/5会反复微调
+    let speed;
+    if (t < 0.3) {
+      speed = 0.6 + Math.random() * 0.4; // 快速起步
+    } else if (t < 0.8) {
+      speed = 0.3 + Math.random() * 0.3; // 匀速
+    } else {
+      speed = 0.05 + Math.random() * 0.15; // 极慢微调
+    }
+    pos += (distance / totalSteps) * speed * 2.5;
+    pos = Math.min(pos, distance);
+
+    // 偶尔停顿（5%概率）
+    if (Math.random() < 0.05) {
+      points.push({ x: startX + pos, y: startY + (Math.random() - 0.5) * 2, delay: 30 + Math.random() * 40 });
+    }
+
+    points.push({
+      x: startX + pos + (Math.random() - 0.5) * 3,  // ±1.5px 水平抖动
+      y: startY + (Math.random() - 0.5) * 4,         // ±2px 垂直抖动
+      delay: 5 + Math.random() * 10,                  // 5-15ms
     });
   }
-  // 最后一步精确到达
-  steps.push({ x: startX + distance, y: startY, delay: 5 });
 
-  // 执行滑动
-  await page.mouse.move(startX, startY);
-  await page.mouse.down();
-  for (const step of steps) {
-    await page.mouse.move(step.x, step.y, { steps: 2 });
-    await new Promise(r => setTimeout(r, step.delay));
+  // 5. 执行轨迹
+  for (const p of points) {
+    await page.mouse.move(p.x, p.y, { steps: 2 });
+    await new Promise(r => setTimeout(r, p.delay));
   }
-  await new Promise(r => setTimeout(r, 50 + Math.random() * 30)); // 停顿
+
+  // 6. 最后的微调：超过再退回（人类特征）
+  if (Math.random() < 0.6) {
+    await page.mouse.move(startX + distance + 1, startY, { steps: 2 });
+    await new Promise(r => setTimeout(r, 30 + Math.random() * 20));
+    await page.mouse.move(startX + distance, startY, { steps: 2 });
+    await new Promise(r => setTimeout(r, 50 + Math.random() * 30));
+  }
+
+  // 7. 停顿 + 松开（人类会看一眼才放手）
+  await new Promise(r => setTimeout(r, 80 + Math.random() * 120));
   await page.mouse.up();
+  await new Promise(r => setTimeout(r, 50 + Math.random() * 100));
 }

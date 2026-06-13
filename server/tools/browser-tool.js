@@ -242,24 +242,29 @@ async function _waitForCaptcha(page) {
         const wrapperBox = await wrapper.boundingBox();
         const maxDist = wrapperBox ? Math.round(wrapperBox.width - box.width - 5) : 300;
         log.log(`滑块范围: 0-${maxDist}px, 估算: ${distance}px`);
-        // 快速扫描：估算起点 165 → 向外扩到 300（步长30，约10次）
+        // 15px 步长扫描（之前30px总差一点点）
         const offsets = [0];
-        for (let step = 30; step <= maxDist; step += 30) {
+        for (let step = 15; step <= maxDist; step += 15) {
           offsets.push(step, -step);
         }
         let passed = false;
 
         for (const off of offsets) {
           const tryDist = Math.max(15, Math.min(maxDist, distance + off));
+          log.log(`尝试: ${tryDist}px`);
           await _humanSlide(page, startX, startY, tryDist);
-          await new Promise(r => setTimeout(r, 800));
-          // 检查是否通过
-          const stillVisible = await wrapper.isVisible({ timeout: 300 }).catch(() => true);
-          if (!stillVisible) { passed = true; break; }
-          // 刷新按钮（点击让滑块归位）
+          // 等1.5秒让验证码反馈结果
+          await new Promise(r => setTimeout(r, 1500));
+          // 多重检查：验证码区域消失 或 出现成功文字
+          const stillVisible = await wrapper.isVisible({ timeout: 500 }).catch(() => true);
+          const hasSuccess = await page.evaluate(() => {
+            const ok = document.querySelector('.nc-lang-cnt .ok, .yidun_success, .geetest_success');
+            return ok && ok.offsetParent !== null;
+          }).catch(() => false);
+          if (!stillVisible || hasSuccess) { passed = true; log.log(`通过! ${tryDist}px`); break; }
+          // 点击滑块归位 + 等0.5秒
           await slider.click({ timeout: 500 }).catch(() => {});
-          await new Promise(r => setTimeout(r, 300));
-          log.log(`重试: ${tryDist}px (offset ${off})`);
+          await new Promise(r => setTimeout(r, 500));
         }
 
         if (passed) {

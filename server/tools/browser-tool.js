@@ -245,11 +245,15 @@ async function _waitForCaptcha(page) {
         // 单向递增扫描：从估算位置到 maxDist，步长 15
         const offsets = [];
         for (let d = distance; d <= maxDist; d += 15) offsets.push(d - distance);
+        offsets.push(maxDist - distance);  // 最后一次精确到 maxDist
         for (let d = distance - 15; d >= 15; d -= 15) offsets.push(d - distance);
         let passed = false;
 
+        const tried = new Set();
         for (const off of offsets) {
           const tryDist = Math.max(15, Math.min(maxDist, distance + off));
+          if (tried.has(tryDist)) continue;
+          tried.add(tryDist);
           log.log(`尝试: ${tryDist}px`);
           await _humanSlide(page, startX, startY, tryDist);
           // 等1.5秒让验证码反馈结果

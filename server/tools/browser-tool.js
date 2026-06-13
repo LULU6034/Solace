@@ -30,8 +30,8 @@ export const browseTool = {
     properties: {
       action: {
         type: 'string',
-        enum: ['navigate', 'search', 'click', 'press', 'fullscreen'],
-        description: 'navigate=打开URL, search=搜索, click=点击播放/按钮, press=按键(f/Esc/空格), fullscreen=全屏',
+        enum: ['navigate', 'search', 'click', 'type', 'press', 'fullscreen'],
+        description: 'navigate=打开URL, search=搜索, click=点击/播放, type=输入文字+回车, press=按键, fullscreen=全屏',
       },
       query: { type: 'string', description: 'URL/搜索词/选择器/按键名' },
     },
@@ -85,6 +85,41 @@ export const browseTool = {
         }
         if (!clicked) return '未找到可点击的元素';
         await new Promise(r => setTimeout(r, 1000));
+      }
+
+      // ═══ type: 找搜索框 → 输入 → 回车 ═══
+      if (action === 'type') {
+        const q = query || '';
+        const selectors = [
+          'input[type="search"]', 'input[type="text"]',
+          'input[name="q"]', 'input[name="query"]', 'input[name="keyword"]',
+          'input[placeholder*="搜索"]', 'input[placeholder*="搜"]',
+          '#search-input', '#searchInput', '.search-input input',
+          '[class*="search"] input',
+        ];
+        let typed = false;
+        for (const sel of selectors) {
+          try {
+            const el = page.locator(sel).first();
+            if (await el.isVisible({ timeout: 300 }).catch(() => false)) {
+              await el.click({ timeout: 500 }).catch(() => {});
+              await new Promise(r => setTimeout(r, 100));
+              // 清空已有内容
+              await el.fill('', { timeout: 1000 }).catch(() => {});
+              // 逐字输入（模拟真人打字）
+              for (let i = 0; i < q.length; i++) {
+                await el.press(q[i], { delay: 30 + Math.random() * 50 });
+              }
+              await new Promise(r => setTimeout(r, 200));
+              await page.keyboard.press('Enter');
+              typed = true;
+              log.log(`已输入: "${q}" → 回车`);
+              break;
+            }
+          } catch {}
+        }
+        if (!typed) return `未找到搜索框，当前页面: ${page.url()}`;
+        await new Promise(r => setTimeout(r, 2000)); // 等搜索结果
       }
 
       // ═══ press: 按键 ═══

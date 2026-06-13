@@ -145,7 +145,7 @@ function getKG() {
   if (!_kgCache) {
     try {
       // KnowledgeGraph 是全局单例，从 index.js 创建的
-      const { getVectorSearch } = _require('./vector-search.js'); // trigger import
+      const { getVectorSearch } = _require('../memory/vector-search.js'); // trigger import
     } catch {}
   }
   return _kgCache;

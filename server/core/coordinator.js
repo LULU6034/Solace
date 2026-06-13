@@ -508,7 +508,7 @@ async function runCollaborationMode({
           let toolTools = [];
           let toolMap = new Map();
           try {
-            const toolsMod = await import('../lib/tools/index.js');
+            const toolsMod = await import('../tools/index.js');
             const allTools = toolsMod.getAllTools();
             // Researcher gets only search tools
             const searchNames = new Set(['web_search', 'web_fetch']);

@@ -335,7 +335,7 @@ async function _runAnswerPhase({
     // Only search if user message is substantial (>10 chars) and looks like a question/factual query
     if (userText.length > 10 && !userText.match(/^(你好|嗨|hi|hello|谢谢|晚安|早安|再见|拜拜|ok|好|嗯|哦)$/i)) {
       // 复用 kb-tools 的共享检索器（已有索引数据），而非新建空实例
-      const { getRetriever, getSchema } = await import('../lib/knowledge/kb-tools-shared.js');
+      const { getRetriever, getSchema } = await import('../knowledge/tools-shared.js');
       const retriever = getRetriever();
       const kbResults = await retriever.search(userText, { topK: 3 });
       if (kbResults && kbResults.length > 0) {
@@ -372,7 +372,7 @@ async function _runAnswerPhase({
   let toolMap = new Map();
   let approvalTools = new Set(['execute_command']);
   try {
-    const toolsMod = await import('../lib/tools/index.js');
+    const toolsMod = await import('../tools/index.js');
     tools = toolsMod.getAllTools();
     toolMap = new Map(tools.map(t => [t.name, t]));
   } catch (err) {
@@ -862,7 +862,7 @@ export async function runAgent({
     const skipThinking = config?.reasoningEffort === 'none';
 
     try {
-      const visionMod = await import('../lib/vision/expert.js');
+      const visionMod = await import('../vision/expert.js');
       const visionPromise = visionMod.analyzeImages(imgs, userText, config);
 
       // Start thinking concurrently (skip if user turned off reasoning)

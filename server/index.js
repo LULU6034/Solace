@@ -29,7 +29,7 @@ import { WebSocketServer } from 'ws';
 import { Hono } from 'hono';
 import { v4 as uuidv4 } from 'uuid';
 import { createModuleLogger } from './lib/debug-log.js';
-import { VoiceSession, STATES } from './core/voice-session.js';
+import { VoiceSession, STATES } from './voice/voice-session.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -148,7 +148,7 @@ app.get('/api/skills', (c) => {
 
 app.post('/api/skills/install', async (c) => {
   const body = await c.req.json();
-  const { installSkill } = await import('./lib/skills/skill-installer.js');
+  const { installSkill } = await import('./skills/skill-installer.js');
   const targetDir = path.join(getPersistDir(), 'skills-user');
   const result = await installSkill(body.source || '', targetDir);
   if (result.success) {
@@ -221,7 +221,7 @@ const pendingApprovals = new Map();
 // ── Lazy initializers ──
 async function getFactStore() {
   if (!_FactStore) {
-    const { FactStore } = _require('./lib/memory/fact-store.js');
+    const { FactStore } = _require('./memory/fact-store-sqlite.js');
     _FactStore = new FactStore(getPersistDir());
     await _FactStore.init();
   }
@@ -250,7 +250,7 @@ async function getMemoryStore() {
       async vectorSearch(query, k = 5) {
         if (!_vsReady) {
           try {
-            const { getVectorSearch } = await import('./core/memory/vector-search.js');
+            const { getVectorSearch } = await import('./memory/vector-search.js');
             _vsCache = getVectorSearch();
             await _vsCache.init();
             _vsReady = true;
@@ -292,10 +292,10 @@ async function getMemoryStore() {
         return kwResults;
       },
     };
-    import('./lib/tools/memory-store-ref.js').then(m => m.setMemoryStore(_MemoryStore));
-    import('./lib/tools/index.js').then(m => { if (m.setMusicMemoryStore) m.setMusicMemoryStore(_MemoryStore); });
+    import('./tools/memory-store-ref.js').then(m => m.setMemoryStore(_MemoryStore));
+    import('./tools/index.js').then(m => { if (m.setMusicMemoryStore) m.setMusicMemoryStore(_MemoryStore); });
     // 提醒推送：广播到所有已连接 WebSocket
-    import('./lib/tools/reminder-tool.js').then(m => {
+    import('./tools/reminder-tool.js').then(m => {
       m.setReminderSender((type, data) => {
         wss.clients.forEach(c => { if (c.readyState === 1) c.send(JSON.stringify({ type, data })); });
       });
@@ -306,7 +306,7 @@ async function getMemoryStore() {
 
 async function getRAGPipeline() {
   if (!_RAGPipeline) {
-    const { RAGPipeline } = _require('./lib/rag/pipeline.js');
+    const { RAGPipeline } = _require('./rag/pipeline.js');
     _RAGPipeline = await new RAGPipeline(getPersistDir()).ready();
   }
   return _RAGPipeline;
@@ -319,7 +319,7 @@ let _KBConfig = null;
 
 async function getKBConfig() {
   if (!_KBConfig) {
-    const { KBConfig } = await import('./lib/knowledge/kb-config.js');
+    const { KBConfig } = await import('./knowledge/config.js');
     _KBConfig = new KBConfig();
   }
   return _KBConfig;
@@ -327,7 +327,7 @@ async function getKBConfig() {
 
 async function getKBIndexer() {
   if (!_KBIndexer) {
-    const { KBIndexer } = await import('./lib/knowledge/kb-indexer.js');
+    const { KBIndexer } = await import('./knowledge/indexer.js');
     _KBIndexer = new KBIndexer();
   }
   return _KBIndexer;
@@ -338,7 +338,7 @@ async function getKBWatcher() {
     const idx = await getKBIndexer();
     await idx.init();
     const cfg = await getKBConfig();
-    const { KBWatcher } = await import('./lib/knowledge/kb-watcher.js');
+    const { KBWatcher } = await import('./knowledge/watcher.js');
     _KBWatcher = new KBWatcher({ config: cfg, indexer: idx });
   }
   return _KBWatcher;
@@ -352,7 +352,7 @@ let _CuriosityEngine = null;
 async function getKBGraph() {
   if (!_KBGraph) {
     await (await getKBIndexer()).init();
-    const { KnowledgeGraph } = await import('./lib/knowledge/kb-graph.js');
+    const { KnowledgeGraph } = await import('./knowledge/graph.js');
     _KBGraph = new KnowledgeGraph(await getKBSchemaInternal());
   }
   return _KBGraph;
@@ -367,7 +367,7 @@ async function getKBSchemaInternal() {
 async function getReflectionEngine() {
   if (!_ReflectionEngine) {
     const schema = await getKBSchemaInternal();
-    const { ReflectionEngine } = await import('./lib/knowledge/kb-reflection.js');
+    const { ReflectionEngine } = await import('./knowledge/reflection.js');
     _ReflectionEngine = new ReflectionEngine({ schema, graph: await getKBGraph() });
   }
   return _ReflectionEngine;
@@ -376,7 +376,7 @@ async function getReflectionEngine() {
 async function getCuriosityEngine() {
   if (!_CuriosityEngine) {
     const schema = await getKBSchemaInternal();
-    const { CuriosityEngine } = await import('./lib/knowledge/kb-curiosity.js');
+    const { CuriosityEngine } = await import('./knowledge/curiosity.js');
     _CuriosityEngine = new CuriosityEngine({ schema, graph: await getKBGraph() });
   }
   return _CuriosityEngine;
@@ -512,7 +512,7 @@ async function handleAgentChat(ws, msg) {
         const llm = createLLM({ provider: 'deepseek', model: 'deepseek-chat', apiKey: config.apiKey, temperature: 0.3, maxTokens: 200 });
         const { content } = await llm.invoke([{ role: 'user', content: `描述这段对话中的关键情境或情绪变化（一句中文，不超过50字）:\n${lastMsgs}\n情境:` }]);
         if (content && content.trim() && content.trim() !== '无') {
-          const { addEpisode } = await import('./core/memory/episodic.js');
+          const { addEpisode } = await import('./memory/episodic.js');
           addEpisode({
             id: `ep_${Date.now()}`, timestamp: Date.now(),
             context: { timeOfDay: new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening', dayOfWeek: new Date().getDay() },
@@ -811,7 +811,7 @@ wss.on('connection', (ws) => {
         break;
       }
       case 'hatch_pet': {
-        const { hatchPet, validateHatch } = await import('./core/hatch.js');
+        const { hatchPet, validateHatch } = await import('./pets/hatch.js');
         const config = msg.config || {};
         try {
           const generated = await hatchPet(config, msg.description || '');
@@ -852,8 +852,8 @@ wss.on('connection', (ws) => {
         break;
       }
       case 'generate_agent_pets': {
-        const { hatchSpritesheet } = await import('./core/hatch-spritesheet.js');
-        const { AGENT_PET_PRESETS } = await import('./core/agent-pets.js');
+        const { hatchSpritesheet } = await import('./pets/hatch-spritesheet.js');
+        const { AGENT_PET_PRESETS } = await import('./pets/agent-pets.js');
         const imgConfig = msg.config || {};
         if (!imgConfig.apiKey) {
           sendEvent(ws, 'hatch_error', { request_id: msg.request_id, error: '请先配置百炼图片 API Key（设置 → 系统 → 图片生成 Key）' }, msg.request_id);
@@ -981,7 +981,7 @@ wss.on('connection', (ws) => {
         break;
       }
       case 'list_tools': {
-        const { getAllTools } = await import('./lib/tools/index.js');
+        const { getAllTools } = await import('./tools/index.js');
         const tools = getAllTools().map(t => ({
           name: t.name,
           description: t.description?.slice(0, 80) || '',
@@ -1054,7 +1054,7 @@ wss.on('connection', (ws) => {
         break;
       case 'skill_install':
         (async () => {
-          const { installSkill } = await import('./lib/skills/skill-installer.js');
+          const { installSkill } = await import('./skills/skill-installer.js');
           const targetDir = path.join(getPersistDir(), 'skills-user');
           const result = await installSkill(msg.source || '', targetDir);
           if (result.success) _SkillManager?.loadAll();
@@ -1116,7 +1116,7 @@ wss.on('connection', (ws) => {
         (async () => {
           try {
             console.log('[server] voice_tts:', msg.text?.slice(0, 30));
-            const { getTTSManager } = await import('./core/tts.js');
+            const { getTTSManager } = await import('./voice/tts.js');
             const tts = getTTSManager();
             console.log('[server] TTS mode:', tts.mode);
             const chunks = [];
@@ -1211,7 +1211,7 @@ wss.on('connection', (ws) => {
 
       case 'voice_status': {
         try {
-          const { getTTSManager } = await import('./core/tts.js');
+          const { getTTSManager } = await import('./voice/tts.js');
           const tts = getTTSManager();
           const status = await tts.status();
           sendEvent(ws, 'voice_status_result', {
@@ -1229,7 +1229,7 @@ wss.on('connection', (ws) => {
 
       case 'voice_recover': {
         try {
-          const { getTTSManager } = await import('./core/tts.js');
+          const { getTTSManager } = await import('./voice/tts.js');
           const tts = getTTSManager();
           const result = await tts.attemptRecovery();
           sendEvent(ws, 'voice_recover_result', {
@@ -1359,7 +1359,7 @@ wss.on('connection', (ws) => {
       case 'import_codex_pet': {
         (async () => {
           try {
-            const { importFromUrl, importFromZip } = await import('./core/codex-importer.js');
+            const { importFromUrl, importFromZip } = await import('./lib/codex-importer.js');
             let pet;
             if (msg.url) {
               pet = await importFromUrl(msg.url);
@@ -1379,7 +1379,7 @@ wss.on('connection', (ws) => {
       }
       case 'get_imported_pets': {
         try {
-          const { listImportedPets } = await import('./core/codex-importer.js');
+          const { listImportedPets } = await import('./lib/codex-importer.js');
           const pets = listImportedPets();
           sendEvent(ws, 'imported_pets', { request_id: msg.request_id, pets }, msg.request_id);
         } catch (err) {
@@ -1389,7 +1389,7 @@ wss.on('connection', (ws) => {
       }
       case 'delete_imported_pet': {
         try {
-          const { deleteImportedPet } = await import('./core/codex-importer.js');
+          const { deleteImportedPet } = await import('./lib/codex-importer.js');
           deleteImportedPet(msg.pet_id);
           sendEvent(ws, 'import_deleted', { request_id: msg.request_id, pet_id: msg.pet_id }, msg.request_id);
         } catch (err) {
@@ -1399,7 +1399,7 @@ wss.on('connection', (ws) => {
       }
       case 'search_codex_pets': {
         try {
-          const { searchCodexPets } = await import('./core/codex-importer.js');
+          const { searchCodexPets } = await import('./lib/codex-importer.js');
           const results = await searchCodexPets(msg.query || '');
           sendEvent(ws, 'codex_search_results', { request_id: msg.request_id, pets: results }, msg.request_id);
         } catch (err) {
@@ -1410,7 +1410,7 @@ wss.on('connection', (ws) => {
       case 'import_codex_slug': {
         (async () => {
           try {
-            const { importFromSlug } = await import('./core/codex-importer.js');
+            const { importFromSlug } = await import('./lib/codex-importer.js');
             const pet = await importFromSlug(msg.slug);
             sendEvent(ws, 'import_done', { request_id: msg.request_id, pet }, msg.request_id);
           } catch (err) {
@@ -1477,7 +1477,7 @@ async function initHub() {
   await _AgentManager.initBuiltinAgents();
 
   // Session memory for collaboration mode
-  const { SessionMemory } = await import('./lib/memory/session-memory.js');
+  const { SessionMemory } = await import('./memory/session-memory.js');
   _SessionMemory = new SessionMemory();
 
   // Create default user agent if no non-builtin agents
@@ -1491,8 +1491,8 @@ async function initHub() {
   }
 
   // 3. Skill Manager
-  const { SkillManager } = await import('./lib/skills/skill-manager.js');
-  const builtinSkillsDir = path.join(path.dirname(_require.resolve('./lib/skills/skill-manager.js')), '..', '..', 'skills-builtin');
+  const { SkillManager } = await import('./skills/skill-manager.js');
+  const builtinSkillsDir = path.join(path.dirname(_require.resolve('./skills/skill-manager.js')), '..', '..', 'skills-builtin');
   const userSkillsDir = path.join(getPersistDir(), 'skills-user');
   fs.mkdirSync(userSkillsDir, { recursive: true });
 
@@ -1502,8 +1502,8 @@ async function initHub() {
   _SkillManager.loadAll();
 
   // 4. Plugin Manager
-  const { PluginManager } = await import('./lib/plugins/plugin-manager.js');
-  const builtinPluginsDir = path.join(path.dirname(_require.resolve('./lib/plugins/plugin-manager.js')), '..', '..', 'plugins-builtin');
+  const { PluginManager } = await import('./plugins/plugin-manager.js');
+  const builtinPluginsDir = path.join(path.dirname(_require.resolve('./plugins/plugin-manager.js')), '..', '..', 'plugins-builtin');
   const userPluginsDir = path.join(getPersistDir(), 'plugins-user');
   fs.mkdirSync(userPluginsDir, { recursive: true });
 
@@ -1594,7 +1594,7 @@ async function initHub() {
   _Hub.start();
 
   // ── Memory + Profile + Sleep Mode (Phase 3) ──
-  const { MemoryManager } = await import('./core/memory/index.js');
+  const { MemoryManager } = await import('./memory/index-core.js');
   // 启动时执行一次衰减
   setTimeout(async () => {
     try {
@@ -1610,10 +1610,10 @@ async function initHub() {
     maxTurns: 20,
   }).ready();
 
-  const { UserProfile } = await import('./core/user-profile.js');
+  const { UserProfile } = await import('./lib/user-profile.js');
   _UserProfile = new UserProfile(getPersistDir());
 
-  const { SleepMode } = await import('./core/sleep-mode.js');
+  const { SleepMode } = await import('./lib/sleep-mode.js');
   _SleepMode = new SleepMode({
     memoryManager: _MemoryManager,
     agentManager: _AgentManager,
@@ -1621,19 +1621,19 @@ async function initHub() {
   });
 
   // ── Emotion + Style (Phase 4) ──
-  const { EmotionTrend } = await import('./core/emotion-trend.js');
+  const { EmotionTrend } = await import('./personality/emotion-trend.js');
   _EmotionTrend = new EmotionTrend(getPersistDir());
 
-  const { StyleAdapter } = await import('./core/style-adapter.js');
+  const { StyleAdapter } = await import('./personality/injector.js');
   _StyleAdapter = new StyleAdapter(getPersistDir());
 
-  const { Personality } = await import('./core/personality.js');
+  const { Personality } = await import('./personality/index.js');
   _Personality = new Personality(getPersistDir());
 
-  const { KnowledgeGraph } = await import('./core/knowledge-graph.js');
+  const { KnowledgeGraph } = await import('./knowledge/knowledge-graph.js');
   _KnowledgeGraph = new KnowledgeGraph({ persistDir: getPersistDir() });
   // 注入 KG 到记忆工具
-  import('./lib/tools/index.js').then(m => m.setKG?.(_KnowledgeGraph));
+  import('./tools/index.js').then(m => m.setKG?.(_KnowledgeGraph));
 
   // Wire sleep mode to heartbeat events
   _Hub.eventBus.subscribe('heartbeat_pulse', () => {
@@ -1645,7 +1645,7 @@ async function initHub() {
   // Add agent tools to tool registry
   const { getAgentTools } = await import('./lib/tools/agent-tools.js');
   const agentTools = getAgentTools();
-  const { getAllTools: _origGetAll } = await import('./lib/tools/index.js');
+  const { getAllTools: _origGetAll } = await import('./tools/index.js');
 
   // Broadcast events to all WS clients
   _Hub.eventBus.subscribe('heartbeat_pulse', (event) => {
@@ -1692,8 +1692,8 @@ function _preload() {
       const t1 = Date.now();
       log.log(`预热: agent_loop (${t1 - t0}ms)`);
       await import('./core/coordinator.js');
-      await import('./lib/security/gate.js');
-      await import('./lib/vision/expert.js');
+      await import('./security/gate.js');
+      await import('./vision/expert.js');
       const t2 = Date.now();
       log.log(`预热完成 (${t2 - t0}ms)`);
     } catch (err) {

@@ -6,7 +6,7 @@ import { FactStoreEnhanced } from './fact-store-enhanced.js';
 import { MemoryRetrieval } from './retrieval.js';
 import * as episodic from './episodic.js';
 import * as mediumTerm from './medium-term.js';
-import { createModuleLogger } from '../../lib/debug-log.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 
 const log = createModuleLogger('mem:mgr');
 

@@ -4,7 +4,7 @@
  * search_music / recommend_music / play_music
  * 推荐引擎利用网易云 API + Chroma 记忆 + 天气 + 时段做个性化推荐
  */
-import { createModuleLogger } from '../../lib/debug-log.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';

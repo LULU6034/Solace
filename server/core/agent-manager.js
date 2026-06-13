@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import { createModuleLogger } from '../lib/debug-log.js';
-import { FactStore } from '../lib/memory/fact-store.js';
+import { FactStore } from '../memory/fact-store-sqlite.js';
 
 const log = createModuleLogger('agent-manager');
 

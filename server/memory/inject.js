@@ -6,7 +6,7 @@
  * 冲突: 长期事实标记"不可变"，短期覆盖临时信息
  */
 
-import { createModuleLogger } from '../../lib/debug-log.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 const log = createModuleLogger('mem:inject');
 
 const TARGET_BUDGET = 6000; // 目标

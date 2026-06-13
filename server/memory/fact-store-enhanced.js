@@ -4,7 +4,7 @@
  * 在 FactStore 基础上添加置信度和衰减。
  * 简化版 — sql.js 不支持 FTS5，使用 LIKE 搜索。
  */
-import { FactStore as _FactStore } from '../../lib/memory/fact-store.js';
+import { FactStore as _FactStore } from './fact-store-sqlite.js';
 
 export { _FactStore as FactStore };
 

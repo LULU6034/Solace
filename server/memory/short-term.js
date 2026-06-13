@@ -3,7 +3,7 @@
  *
  * 动态控制: 20轮上限 + 8000 token 总上限 + 简短确认压缩
  */
-import { createModuleLogger } from '../../lib/debug-log.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 
 const log = createModuleLogger('short-term');
 const MAX_TURNS = 20;

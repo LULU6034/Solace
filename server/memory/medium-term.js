@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { createModuleLogger } from '../../lib/debug-log.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 
 const log = createModuleLogger('mem:medium');
 const BASE_DIR = path.join(os.homedir(), '.ai-desktop-pet', 'memory', 'summaries');

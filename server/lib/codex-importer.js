@@ -16,7 +16,7 @@ import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
 import https from 'node:https';
-import { createModuleLogger } from '../lib/debug-log.js';
+import { createModuleLogger } from './debug-log.js';
 
 const log = createModuleLogger('codex-importer');
 

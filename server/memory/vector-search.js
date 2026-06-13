@@ -7,7 +7,7 @@
  * 降级策略: Transformers.js 加载失败 → 回退到 TF-IDF 词袋模型
  */
 
-import { createModuleLogger } from '../../lib/debug-log.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 
 const log = createModuleLogger('mem:vector');
 

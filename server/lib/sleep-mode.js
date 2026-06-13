@@ -12,7 +12,7 @@
  * 3. 用户行为模式变化
  */
 
-import { createModuleLogger } from '../lib/debug-log.js';
+import { createModuleLogger } from './debug-log.js';
 import { createLLM } from '../core/llm-client.js';
 
 const log = createModuleLogger('mem:sleep');

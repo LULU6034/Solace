@@ -6,8 +6,8 @@
  *   - Heartbeat: per-agent 空闲检测 + 主动问候
  *   - 分离：Cron 是 Studio 级，Heartbeat 是 per-agent
  */
-import { CronStore } from '../lib/desk/cron-store.js';
-import { createHeartbeat } from '../lib/desk/heartbeat.js';
+import { CronStore } from '../desk/cron-store.js';
+import { createHeartbeat } from '../desk/heartbeat.js';
 import { createModuleLogger } from '../lib/debug-log.js';
 
 const log = createModuleLogger('scheduler');

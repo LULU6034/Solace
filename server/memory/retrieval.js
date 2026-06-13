@@ -10,7 +10,7 @@ import { ShortTermMemory } from './short-term.js';
 import * as mediumTerm from './medium-term.js';
 import * as episodic from './episodic.js';
 import { FactStoreEnhanced } from './fact-store-enhanced.js';
-import { createModuleLogger } from '../../lib/debug-log.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 
 const log = createModuleLogger('mem:retrieval');
 

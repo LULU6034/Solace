@@ -256,18 +256,32 @@ async function _waitForCaptcha(page) {
           tried.add(tryDist);
           log.log(`尝试: ${tryDist}px`);
           await _humanSlide(page, startX, startY, tryDist);
-          // 等1.5秒让验证码反馈结果
-          await new Promise(r => setTimeout(r, 1500));
-          // 多重检查：验证码区域消失 或 出现成功文字
-          const stillVisible = await wrapper.isVisible({ timeout: 500 }).catch(() => true);
-          const hasSuccess = await page.evaluate(() => {
-            const ok = document.querySelector('.nc-lang-cnt .ok, .yidun_success, .geetest_success');
-            return ok && ok.offsetParent !== null;
+          // 等验证码反馈（阿里云较慢）
+          await new Promise(r => setTimeout(r, 2000));
+          // 多重通过检测
+          const notVisible = await wrapper.isVisible({ timeout: 500 }).catch(() => false);
+          const passedTest = await page.evaluate(() => {
+            const checks = [
+              '.nc_wrapper .errloading',  // 阿里云失败刷新
+              '.nc_wrapper',              // 还在显示
+              '.yidun_slider',
+              '.geetest_widget',
+            ];
+            // 三个检测都不在了 = 通过
+            return !checks.some(s => {
+              const el = document.querySelector(s);
+              return el && el.offsetParent !== null;
+            });
           }).catch(() => false);
-          if (!stillVisible || hasSuccess) { passed = true; log.log(`通过! ${tryDist}px`); break; }
-          // 点击滑块归位 + 等0.5秒
-          await slider.click({ timeout: 500 }).catch(() => {});
-          await new Promise(r => setTimeout(r, 500));
+          if (!notVisible || passedTest) {
+            // 再确认一次
+            await new Promise(r => setTimeout(r, 500));
+            const confirm = await wrapper.isVisible({ timeout: 300 }).catch(() => true);
+            if (!confirm || passedTest) { passed = true; log.log(`通过! ${tryDist}px`); break; }
+          }
+          // 点击滑块归位 + 等一下
+          await slider.click({ timeout: 800 }).catch(() => {});
+          await new Promise(r => setTimeout(r, 600));
         }
 
         if (passed) {

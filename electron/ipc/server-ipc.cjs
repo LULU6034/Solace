@@ -50,7 +50,7 @@ class ServerBridge {
     if (this.ready) return true;
 
     const isDev = process.env.ELECTRON_IS_DEV === 'true' || !app.isPackaged;
-    const projectRoot = isDev ? path.join(__dirname, '..') : process.resourcesPath;
+    const projectRoot = isDev ? path.join(__dirname, '../..') : process.resourcesPath;
 
     this.persistDir = path.join(app.getPath('userData'), 'agent-data');
     require('fs').mkdirSync(this.persistDir, { recursive: true });

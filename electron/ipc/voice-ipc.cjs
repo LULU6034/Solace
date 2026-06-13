@@ -72,7 +72,7 @@ function getApiKeyFromConfig() {
       catch { return false; }
     });
     if (!python) { console.log('[voice-ipc] Python not found'); return; }
-    const script = path.join(__dirname, '..', 'scripts', 'cosyvoice-server.py');
+    const script = path.join(__dirname, '../..', 'scripts', 'cosyvoice-server.py');
     if (!fs.existsSync(script)) { console.log('[voice-ipc] Server script not found:', script); return; }
 
     console.log('[voice-ipc] Starting TTS API server...');

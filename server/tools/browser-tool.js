@@ -20,30 +20,51 @@ const _pendingQueue = [];
 
 export const browseTool = {
   name: 'browse',
-  description: '打开浏览器搜索或浏览网页。像 web_search 一样用，但用真实浏览器渲染页面。',
+  description: '用真实浏览器打开网页或搜索。比 web_search 强：能渲染JS动态页面、看视频网站、搜电商商品。' +
+    '用户要浏览网页/搜商品/看B站时必须用此工具。',
   parameters: {
     type: 'object',
     properties: {
-      query: { type: 'string', description: '搜索关键词或 URL' },
+      action: {
+        type: 'string',
+        enum: ['navigate', 'search'],
+        description: 'navigate=打开URL, search=搜索关键词',
+      },
+      query: { type: 'string', description: 'URL(搭配navigate)或搜索词(搭配search)' },
+      site: {
+        type: 'string',
+        enum: ['baidu', 'bing', 'jd', 'taobao', 'bilibili'],
+        description: '搜索站点，默认baidu。电商用jd/taobao，视频用bilibili',
+      },
     },
-    required: ['query'],
+    required: ['action', 'query'],
   },
-  async invoke({ query }) {
+  async invoke({ action, query, site }) {
     const page = await _acquirePage();
     try {
       const q = String(query || '').trim();
-      // 如果是完整 URL，直接打开
-      const isUrl = /^https?:\/\//i.test(q);
-      const targetUrl = isUrl
-        ? q
-        : `https://www.baidu.com/s?wd=${encodeURIComponent(q)}`;
+      let targetUrl;
+
+      if (action === 'navigate') {
+        targetUrl = /^https?:\/\//i.test(q) ? q : `https://${q}`;
+      } else {
+        // search
+        const urls = {
+          baidu: `https://www.baidu.com/s?wd=${encodeURIComponent(q)}`,
+          bing: `https://www.bing.com/search?q=${encodeURIComponent(q)}`,
+          jd: `https://search.jd.com/Search?keyword=${encodeURIComponent(q)}`,
+          taobao: `https://s.taobao.com/search?q=${encodeURIComponent(q)}`,
+          bilibili: `https://search.bilibili.com/all?keyword=${encodeURIComponent(q)}`,
+        };
+        targetUrl = urls[site] || urls.baidu;
+      }
 
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-      if (!isUrl) await new Promise(r => setTimeout(r, 1500));
+      if (action === 'search') await new Promise(r => setTimeout(r, 1500));
 
       const title = await page.title();
       const text = await page.evaluate(() => document.body.innerText);
-      log.log(`browse: "${q.slice(0, 30)}" → ${title}`);
+      log.log(`browse[${action}]: "${q.slice(0, 30)}" → ${title}`);
       return JSON.stringify({
         success: true,
         title,

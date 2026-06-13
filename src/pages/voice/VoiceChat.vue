@@ -161,7 +161,7 @@ async function callAgentVoice(text) {
     var timer = setTimeout(function() {
       cleanup(); voice.speakViaCosyVoice(polishForTTS(fullText), emotion, 1.0)
       voiceHistory.push({ role: "user", content: text }); _saveVoiceHistory(); resolve({ text: fullText || "Okay.", emotion })
-    }, 45000)
+    }, 120000)
     function onChunk(data) {
       var d = data?.data || data; if (!d?.content) return
       fullText += d.content; streamingText.value = fullText

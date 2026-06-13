@@ -5,7 +5,7 @@
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-PYTHON_DIR="$PROJECT_DIR/python"
+PYTHON_DIR="$SCRIPT_DIR"
 
 echo "=== Sonder CosyVoice 环境安装 ==="
 echo ""

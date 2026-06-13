@@ -33,6 +33,8 @@
       <GroupChatPage v-else-if="activeView === 'groupchat'" />
       <VoiceChat v-else-if="activeView === 'voice'" />
       <RolesPage v-else-if="activeView === 'roles'" @openSettings="showSettings = true" />
+      <MemoryGraphPage v-else-if="activeView === 'memory'" />
+      <KnowledgePage v-else-if="activeView === 'knowledge'" />
     </div>
 
     <Transition name="settings">
@@ -40,20 +42,20 @@
     </Transition>
 
     <ConflictDialog ref="conflictDlg" />
-    <MemoryGraph v-if="showMemoryGraph" @close="showMemoryGraph = false" />
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { MessageCircle, Users, Settings, Sparkles, Mic } from 'lucide-vue-next'
+import { MessageCircle, Users, Settings, Sparkles, Mic, Brain, Database } from 'lucide-vue-next'
 import ChatPage from './components/ChatPage.vue'
 import GroupChatPage from './components/GroupChatPage.vue'
 import VoiceChat from './components/VoiceChat.vue'
 import RolesPage from './components/RolesPage.vue'
 import TopMiniPlayer from './components/TopMiniPlayer.vue'
 import ConflictDialog from './components/ConflictDialog.vue'
-import MemoryGraph from './components/MemoryGraph.vue'
+import MemoryGraphPage from './components/MemoryGraphPage.vue'
+import KnowledgePage from './components/KnowledgePage.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 
 // ── 窗口拖动 ──
@@ -83,6 +85,8 @@ const menuItems = [
   { id: 'groupchat', icon: Sparkles, label: '群聊' },
   { id: 'voice', icon: Mic, label: '语音' },
   { id: 'roles', icon: Users, label: '角色' },
+  { id: 'memory', icon: Brain, label: '记忆' },
+  { id: 'knowledge', icon: Database, label: '知识库' },
 ]
 
 function switchView(id) {
@@ -93,7 +97,6 @@ function switchView(id) {
 const showSettings = ref(false)
 const agentOnline = ref(false)
 const conflictDlg = ref(null)
-const showMemoryGraph = ref(false)
 
 // Health check
 let healthInterval = setInterval(async () => {

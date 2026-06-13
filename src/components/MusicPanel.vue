@@ -12,6 +12,18 @@
         <button class="login-hero-btn" @click="showQr = true" :disabled="qrLoading">
           {{ qrLoading ? '加载中...' : '扫码登录' }}
         </button>
+        <button class="login-hero-btn" style="background:var(--color-primary);margin-top:8px" @click="browserLogin" :disabled="browserLoggingIn">
+          {{ browserLoggingIn ? '登录中...' : '浏览器登录' }}
+        </button>
+        <div class="login-hero-desc" style="margin-top:12px;font-size:11px;opacity:0.6">
+          或 <a href="#" @click.prevent="showCookieInput = !showCookieInput">直接填入 Cookie</a>（浏览器F12获取，免扫码）
+        </div>
+        <div v-if="showCookieInput" style="margin-top:6px;display:flex;gap:4px">
+          <input v-model="cookieInput" type="password" placeholder="粘贴完整 Cookie 或 MUSIC_U=xxx" style="flex:1;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);font-size:12px" />
+          <button @click="cookieLogin" :disabled="cookieLoggingIn || !cookieInput.trim()" style="padding:6px 12px;border-radius:6px;background:var(--color-primary);color:#fff;border:none;font-size:12px;cursor:pointer">
+            {{ cookieLoggingIn ? '...' : '确认' }}
+          </button>
+        </div>
       </div>
 
       <!-- 二维码弹窗 -->
@@ -130,6 +142,33 @@
         {{ isPlaying ? '⏸' : '▶' }}
       </button>
     </div>
+
+    <!-- 歌单（Agent 推荐/搜索存入）-->
+    <div class="section-title" style="margin-top:16px">
+      我的歌单
+      <button v-if="playlist.length" class="playlist-clear" @click="clearPlaylist">清空</button>
+    </div>
+    <div v-if="playlist.length === 0" class="playlist-empty">Agent 推荐的歌曲会自动出现在这里</div>
+    <div v-else class="playlist-list">
+      <div v-for="(s, i) in playlist" :key="s.songId + '-' + i" class="playlist-item"
+        :class="{ playing: String(currentPlayingId) === String(s.songId) }"
+        @dblclick="playFromPlaylist(i)">
+        <span class="playlist-idx" :class="{ active: String(currentPlayingId) === String(s.songId) }">
+          <span v-if="String(currentPlayingId) === String(s.songId)" class="playlist-eq">
+            <i></i><i></i><i></i>
+          </span>
+          <span v-else>{{ i + 1 }}</span>
+        </span>
+        <div class="playlist-info">
+          <span class="playlist-name">{{ s.name }}</span>
+          <span class="playlist-artist">{{ s.artist }}</span>
+        </div>
+        <button class="playlist-play" @click="playFromPlaylist(i)">
+          {{ String(currentPlayingId) === String(s.songId) ? '⏸' : '▶' }}
+        </button>
+        <button class="playlist-remove" @click="removeFromPlaylist(i)">×</button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -145,6 +184,10 @@ const qrImg = ref('')
 const qrHint = ref('')
 const qrLoading = ref(false)
 const qrExpired = ref(false)
+const browserLoggingIn = ref(false)
+const showCookieInput = ref(false)
+const cookieInput = ref('')
+const cookieLoggingIn = ref(false)
 let qrKey = '', qrTimer = null
 
 // ── 搜索 ──
@@ -158,6 +201,62 @@ const searchInput = ref(null)
 // ── 我的数据 ──
 const myPlaylists = ref([])
 const likedCount = ref(0)
+
+// ── 歌单（Agent 推荐/搜索自动存入）──
+const playlist = ref([])
+const currentPlayingId = ref(null)
+
+function loadLocalPlaylist() {
+  try { playlist.value = JSON.parse(localStorage.getItem('music-playlist') || '[]'); }
+  catch { playlist.value = []; }
+  playlist.value = playlist.value.map(s => ({ ...s, songId: String(s.songId || '') }));
+  console.log('[MusicPanel] 歌单加载:', playlist.value.length, '首, 当前播放:', window.__musicCurrentTrack?.songId);
+  _syncPlayingId();
+}
+function _syncPlayingId() {
+  const t = window.__musicCurrentTrack;
+  if (t?.songId) {
+    currentPlayingId.value = String(t.songId);
+  } else {
+    currentPlayingId.value = null;
+  }
+}
+
+function clearPlaylist() { playlist.value = []; localStorage.removeItem('music-playlist'); }
+function removeFromPlaylist(idx) { playlist.value.splice(idx, 1); localStorage.setItem('music-playlist', JSON.stringify(playlist.value)); }
+function playFromPlaylist(idx) {
+  const song = playlist.value[idx];
+  if (!song) return;
+  // 如果点的是当前播放的歌 → 暂停
+  if (currentPlayingId.value === song.songId) {
+    const a = window.__musicAudio;
+    if (a && !a.paused) { a.pause(); return; }
+  }
+  initAudio();
+  // Play directly via shared audio
+  window.electronAPI?.neteaseSongUrl({ songId: song.songId, level: 'higher' }).then(r => {
+    if (!r?.ok || !r.data?.url) return window.electronAPI?.neteaseSongUrl({ songId: song.songId, level: 'standard' });
+    return r;
+  }).then(r => {
+    if (!r?.ok || !r.data?.url) return;
+    audioEl.src = r.data.url;
+    audioEl.play().catch(() => {});
+    window.__musicCurrentTrack = { songId: String(song.songId), name: song.name, artist: song.artist || '', cover: song.cover || '' };
+    currentTrack.value = song;
+    currentCover.value = song.cover || '';
+    // 把歌单剩余歌曲加到队列
+    const queue = playlist.value.slice(idx + 1);
+    window.dispatchEvent(new CustomEvent('music-nowplaying', {
+      detail: { songId: song.songId, name: song.name, artist: song.artist, cover: song.cover, reason: '歌单播放' }
+    }));
+    // 后续歌曲加入队列
+    for (const qs of queue) {
+      window.dispatchEvent(new CustomEvent('music-enqueue', {
+        detail: { songId: qs.songId, name: qs.name, artist: qs.artist, cover: qs.cover }
+      }));
+    }
+  }).catch(() => {});
+}
 
 // ── 播放 ──
 const currentTrack = ref(null)
@@ -216,9 +315,14 @@ function initAudio() {
     const elapsed = (Date.now() - _playStartTime) / 1000
     const dur = audioEl.duration || 1
     if (elapsed / dur >= 0.9) recordFeedback('complete', 2)
-    playIndex(playerIndex + 1)
+    // 自动切歌统一由 TopMiniPlayer 处理（共享 audio 上只有一个 auto-next 入口）
   })
-  audioEl.addEventListener('error', () => { playIndex(playerIndex + 1) })
+  audioEl.addEventListener('error', () => {
+    // 只在 MusicPanel 发起的播放中自动切换（当前歌曲在 panel 歌单中才处理）
+    const ct = window.__musicCurrentTrack
+    const inPanel = ct && playerPlaylist.some(s => String(s.id) === String(ct.songId))
+    if (inPanel) playIndex(playerIndex + 1)
+  })
 
   window.addEventListener('music-skip', () => {
     const elapsed = (Date.now() - _playStartTime) / 1000
@@ -242,6 +346,12 @@ async function playIndex(index) {
   const song = playerPlaylist[index]
   currentTrack.value = song
   currentCover.value = song.cover || ''
+  // 同步歌单到 localStorage，供 TopMiniPlayer 自动切歌
+  try {
+    const pl = playerPlaylist.map(s => ({ songId: String(s.id), name: s.name, artist: s.artist || '', cover: s.cover || '' }))
+    localStorage.setItem('music-playlist', JSON.stringify(pl))
+    window.dispatchEvent(new CustomEvent('music-playlist-updated'))
+  } catch {}
   // 通知顶部迷你播放器
   window.dispatchEvent(new CustomEvent('music-nowplaying', {
     detail: { songId: song.id, name: song.name, artist: song.artist, cover: song.cover, reason: '' }
@@ -378,13 +488,43 @@ function startQrPoll() {
     if (!r?.ok) return
     qrHint.value = r.data.message
     if (r.data.code === 803) { closeQr(); await checkLogin() }
-    if (r.data.code === 800) { qrExpired.value = true; clearInterval(qrTimer); qrHint.value = '二维码已过期，请刷新' }
+    if (r.data.code === 800) { clearInterval(qrTimer); createQr() }
   }, 2000)
 }
 
 function closeQr() {
   showQr.value = false; clearInterval(qrTimer); qrKey = ''
   qrImg.value = ''; qrHint.value = ''; qrExpired.value = false
+}
+
+async function cookieLogin() {
+  cookieLoggingIn.value = true
+  try {
+    const r = await window.electronAPI?.neteaseCookieLogin(cookieInput.value.trim())
+    if (r?.ok) {
+      isLoggedIn.value = true
+      userInfo.value = { nickname: r.data?.nickname || '' }
+      showCookieInput.value = false; cookieInput.value = ''
+      loadUserData()
+    } else {
+      alert(r?.error || '登录失败，请检查 Cookie 是否有效')
+    }
+  } catch (e) { alert('网络错误') }
+  finally { cookieLoggingIn.value = false }
+}
+
+async function browserLogin() {
+  browserLoggingIn.value = true
+  try {
+    const r = await window.electronAPI?.neteaseBrowserLogin()
+    if (r?.ok) {
+      isLoggedIn.value = true
+      userInfo.value = { nickname: r.data?.nickname || '' }
+      loadUserData()
+      closeQr()
+    }
+  } catch (e) { console.error('[netease] browser login:', e) }
+  finally { browserLoggingIn.value = false }
 }
 
 async function checkLogin() {
@@ -418,8 +558,18 @@ async function loadUserData() {
 
 watch(showQr, (v) => { if (v) createQr() })
 
-onMounted(() => { checkLogin() })
-onUnmounted(() => { clearInterval(qrTimer) })
+let _syncTimer = null
+onMounted(() => {
+  checkLogin(); loadLocalPlaylist();
+  window.addEventListener('music-playlist-updated', () => { loadLocalPlaylist(); });
+  // 每 500ms 检查一次播放状态（轻量，无事件依赖）
+  _syncTimer = setInterval(() => { _syncPlayingId(); }, 500);
+})
+onUnmounted(() => {
+  clearInterval(qrTimer);
+  clearInterval(_syncTimer);
+  window.removeEventListener('music-playlist-updated', () => {});
+})
 </script>
 
 <style scoped>
@@ -547,4 +697,50 @@ onUnmounted(() => { clearInterval(qrTimer) })
 .qr-loading { width: 180px; height: 180px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 12px; }
 .qr-hint { margin-top: 10px; font-size: 11px; color: var(--text-muted); }
 .qr-refresh { margin-top: 8px; padding: 4px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-secondary); cursor: pointer; font-size: 11px; }
+/* ═══ 我的歌单列表 ═══ */
+.playlist-list { display: flex; flex-direction: column; gap: 2px; }
+.playlist-item {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  border-radius: 8px; cursor: pointer; transition: all .18s;
+}
+.playlist-item:hover { background: var(--bg-sidebar-hover); }
+.playlist-item.playing {
+  background: var(--accent-soft);
+  border-radius: 8px;
+}
+.playlist-idx { font-size: 10px; color: var(--text-muted); width: 18px; text-align: center; flex-shrink: 0; }
+.playlist-idx.active { color: var(--accent); font-weight: 600; }
+/* EQ 动画 */
+.playlist-eq { display: flex; align-items: flex-end; gap: 2px; height: 14px; justify-content: center; }
+.playlist-eq i {
+  display: block; width: 2px; background: var(--accent); border-radius: 1px;
+  animation: eqBounce .8s ease-in-out infinite;
+}
+.playlist-eq i:nth-child(1) { height: 8px; animation-delay: 0s; }
+.playlist-eq i:nth-child(2) { height: 14px; animation-delay: .15s; }
+.playlist-eq i:nth-child(3) { height: 5px; animation-delay: .3s; }
+@keyframes eqBounce {
+  0%, 100% { transform: scaleY(1); }
+  50% { transform: scaleY(.4); }
+}
+.playlist-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.playlist-item.playing .playlist-name { color: var(--accent-light); font-weight: 500; }
+.playlist-name { font-size: 12px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color .2s; }
+.playlist-artist { font-size: 10px; color: var(--text-muted); }
+.playlist-play, .playlist-remove {
+  width: 24px; height: 24px; border-radius: 50%; border: none;
+  background: transparent; cursor: pointer; font-size: 10px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted); transition: all .15s; flex-shrink: 0;
+}
+.playlist-item.playing .playlist-play { color: var(--accent); }
+.playlist-play:hover { background: rgba(109,124,255,0.12); color: var(--accent); }
+.playlist-remove:hover { background: rgba(255,59,48,0.1); color: var(--danger); }
+.playlist-empty { text-align: center; font-size: 11px; color: var(--text-muted); padding: 16px 0; }
+.playlist-clear {
+  float: right; font-size: 10px; border: 1px solid var(--border); border-radius: 4px;
+  background: none; color: var(--text-muted); cursor: pointer; padding: 2px 8px;
+}
+.playlist-clear:hover { color: var(--danger); border-color: var(--danger); }
+
 </style>

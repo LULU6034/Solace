@@ -123,13 +123,20 @@ async function _loadEmbeddingModel() {
   _pipelineLoading = true;
   try {
     const { pipeline, env } = await import('@xenova/transformers');
-    env.allowRemoteModels = false;
-    _pipeline = await pipeline('feature-extraction', 'Xenova/bge-micro-v2', {
-      local_files_only: true,
-    });
-    log.log('bge-micro-v2 加载成功');
+    try {
+      env.allowRemoteModels = false;
+      _pipeline = await pipeline('feature-extraction', 'Xenova/bge-micro-v2', { local_files_only: true });
+    } catch {
+      try {
+        env.allowRemoteModels = true;
+        _pipeline = await pipeline('feature-extraction', 'Xenova/bge-micro-v2');
+      } catch (e2) {
+        log.warn('bge-micro-v2 不可用: ' + e2.message);
+      }
+    }
+    if (_pipeline) log.log('bge-micro-v2 加载成功');
   } catch (err) {
-    log.warn(`bge-micro-v2 加载失败: ${err.message}，回退 TF-IDF`);
+    log.warn('bge-micro-v2 加载失败: ' + err.message + '，回退 TF-IDF');
   }
   _pipelineLoading = false;
   return _pipeline;

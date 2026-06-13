@@ -110,6 +110,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('agent-observation', listener)
     return () => ipcRenderer.removeListener('agent-observation', listener)
   },
+  onAgentSpeak: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('agent-speak', listener)
+    return () => ipcRenderer.removeListener('agent-speak', listener)
+  },
   onAgentChunk: (cb) => {
     const listener = (_event, data) => cb(data)
     ipcRenderer.on('agent-chunk', listener)
@@ -144,6 +149,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const listener = (_event, data) => cb(data)
     ipcRenderer.on('memory-conflict', listener)
     return () => ipcRenderer.removeListener('memory-conflict', listener)
+  },
+
+  // ── Reminder ──
+  onReminderFire: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('reminder-fire', listener)
+    return () => ipcRenderer.removeListener('reminder-fire', listener)
   },
 
   // Coordinator / Group Chat 事件
@@ -298,6 +310,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   agentMemoryGetFacts: () => ipcRenderer.invoke('memory-get-facts'),
   agentMemoryGetEpisodes: () => ipcRenderer.invoke('memory-get-episodes'),
 
+  // ── Knowledge Base ──
+  kbSearch: (query, opts) => ipcRenderer.invoke('kb-search', query, opts),
+  kbAsk: (query, opts) => ipcRenderer.invoke('kb-ask', query, opts),
+  kbIndexTrigger: () => ipcRenderer.invoke('kb-index-trigger'),
+  kbIndexRebuild: () => ipcRenderer.invoke('kb-index-rebuild'),
+  kbGetConfig: () => ipcRenderer.invoke('kb-config'),
+  kbUpdateConfig: (key, value) => ipcRenderer.invoke('kb-config-update', key, value),
+
   // ── Battery ──
   onBatteryProfile: (cb) => {
     const listener = (_event, data) => cb(data)
@@ -316,6 +336,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   neteaseLoginStatus: () => ipcRenderer.invoke('netease-login-status'),
   neteaseQrCreate: () => ipcRenderer.invoke('netease-qr-create'),
   neteaseQrCheck: (params) => ipcRenderer.invoke('netease-qr-check', params),
+  neteaseBrowserLogin: () => ipcRenderer.invoke('netease-browser-login'),
+  neteaseCookieLogin: (cookie) => ipcRenderer.invoke('netease-cookie-login', cookie),
   neteaseLogout: () => ipcRenderer.invoke('netease-logout'),
   neteaseUserPlaylists: (params) => ipcRenderer.invoke('netease-user-playlists', params || {}),
   neteaseLikedSongs: (params) => ipcRenderer.invoke('netease-liked-songs', params || {}),

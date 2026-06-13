@@ -3,7 +3,7 @@
  *
  * 连接 Node.js Agent Server 与渲染进程，替代 Python stdin/stdout 协议。
  */
-const { ipcMain } = require('electron');
+const { ipcMain, BrowserWindow } = require('electron');
 const { ServerBridge } = require('./server-ipc.cjs');
 
 let bridge = null;
@@ -42,6 +42,7 @@ function registerAgentIPC() {
     reasoning_chunk: 'agent-reasoning-chunk',
     agent_action: 'agent-action',
     agent_observation: 'agent-observation',
+    speak: 'agent-speak',
     done: 'agent-done',
     error: 'agent-error',
     tool_approval_request: 'agent-tool-approval-request',
@@ -67,6 +68,8 @@ function registerAgentIPC() {
     expert_done: 'expert-done',
     expert_error: 'expert-error',
     security_confirm_required: 'security-confirm-required',
+    reminder_fire: 'reminder-fire',
+    reminder_list: 'reminder-list',
   };
 
   // agent-chat: 单 Agent 对话
@@ -641,6 +644,35 @@ function registerAgentIPC() {
     });
   }
 
+  // ── Knowledge Base ──
+  const KB_CHANNELS = {
+    'kb-search': { type: 'kb_search', args: (query, opts) => ({ query, topK: opts?.topK, rerank: opts?.rerank }), reply: 'kb_search_result', key: 'results' },
+    'kb-ask': { type: 'kb_ask', args: (query, opts) => ({ query, config: opts?.config }), reply: 'kb_ask_result' },
+    'kb-index-trigger': { type: 'kb_index_trigger', reply: 'kb_index_done', key: 'result' },
+    'kb-index-rebuild': { type: 'kb_index_rebuild', reply: 'kb_index_done', key: 'result' },
+    'kb-config': { type: 'kb_config', reply: 'kb_config', key: 'config' },
+    'kb-config-update': { type: 'kb_config_update', args: (key, value) => ({ key, value }), reply: 'kb_config_updated' },
+  };
+
+  for (const [channel, cfg] of Object.entries(KB_CHANNELS)) {
+    ipcMain.handle(channel, async (_event, ...handlerArgs) => {
+      try {
+        await ensureAgentReady();
+        const requestId = `req-kb-${Date.now()}`;
+        const payload = cfg.args ? cfg.args(...handlerArgs) : {};
+        b.send({ type: cfg.type, request_id: requestId, ...payload });
+        return await new Promise((resolve) => {
+          const timer = setTimeout(() => resolve({ error: '超时' }), 15_000);
+          const unsub = b.on(cfg.reply, (data) => {
+            clearTimeout(timer); unsub();
+            if (data.type === 'error') resolve({ error: data?.data?.content });
+            else resolve({ [cfg.key || 'ok']: data?.data?.[cfg.key] || data?.data || true });
+          });
+        });
+      } catch (err) { return { error: err.message }; }
+    });
+  }
+
   // ── Personality (P0) ──
   for (const [channel, cfg] of Object.entries({
     'personality-get': { type: 'personality_get', reply: 'personality_data' },
@@ -663,6 +695,19 @@ function registerAgentIPC() {
       } catch (err) { return { error: err.message }; }
     });
   }
+
+  // ── 持久化事件监听（不受 agent-chat 生命周期影响）──
+  // 这些事件是服务端主动推送的（提醒触发等），需要在 agent-chat 请求之外也保持监听
+  b.on('reminder_fire', (data) => {
+    const payload = data?.data || data || {};
+    console.log('[agent-ipc] reminder_fire:', payload.task || payload.message);
+    const wins = BrowserWindow.getAllWindows();
+    for (const win of wins) {
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('reminder-fire', payload);
+      }
+    }
+  });
 
   console.log('[agent-ipc] IPC 处理器已注册 (Node.js Server + WebSocket)');
 }

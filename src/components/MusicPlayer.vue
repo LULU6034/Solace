@@ -197,10 +197,14 @@ function fmtDur(t) {
   return m + ':' + (s < 10 ? '0' : '') + s
 }
 
-// ── 音频 ──
+// ── 音频（共用全局 __musicAudio，TTS 说话时能统一闪避）──
 function initAudio() {
-  if (audioEl) return
-  audioEl = new Audio()
+  if (!window.__musicAudio) window.__musicAudio = new Audio()
+  if (audioEl && audioEl === window.__musicAudio) return
+  audioEl = window.__musicAudio
+  // 防止重复绑定事件
+  if (audioEl._musicEventsBound) return
+  audioEl._musicEventsBound = true
   audioEl.addEventListener('timeupdate', () => { currentTime.value = audioEl.currentTime })
   audioEl.addEventListener('loadedmetadata', () => { duration.value = audioEl.duration })
   audioEl.addEventListener('ended', () => { nextTrack() })

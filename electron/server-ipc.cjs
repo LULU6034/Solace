@@ -281,7 +281,7 @@ class ServerBridge {
       this.ws = null;
     }
     if (this.process) {
-      try { this.process.kill(); } catch {}
+      try { this.process.kill('SIGKILL'); } catch {}
       this.process = null;
     }
     this.ready = false;

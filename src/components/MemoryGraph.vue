@@ -65,14 +65,39 @@ async function loadData() {
 
   try {
     const r = await window.electronAPI?.agentMemoryGetFacts?.()
-    const facts = r?.facts || []
-    for (let i = 0; i < facts.length; i++) {
-      const f = facts[i]
-      const label = typeof f === 'string' ? f : (f.fact || f.content || String(f))
-      if (!label) continue
-      const tags = f.tags || []
-      allNodes.push({ id: `f_${i}`, type: 'fact', label, tags })
-      for (const tag of tags) {
+    const rawFacts = (r?.facts || []).map((f, i) => ({
+      id: i,
+      label: typeof f === 'string' ? f : (f.fact || f.content || String(f)),
+      confidence: f.confidence || 0.5,
+      tags: f.tags || [],
+    })).filter(f => f.label && f.confidence >= 0.3)
+
+    // 去重合并：标签相同 + 文本前6字相同 → 保留置信度最高的
+    const merged = []
+    const used = new Set()
+    for (let i = 0; i < rawFacts.length; i++) {
+      if (used.has(i)) continue
+      const a = rawFacts[i]
+      const group = [a]
+      for (let j = i + 1; j < rawFacts.length; j++) {
+        if (used.has(j)) continue
+        const b = rawFacts[j]
+        const shortA = a.label.replace(/\s/g, '').slice(0, 6)
+        const shortB = b.label.replace(/\s/g, '').slice(0, 6)
+        if (shortA === shortB || a.label.includes(b.label.slice(0, 8)) || b.label.includes(a.label.slice(0, 8))) {
+          group.push(b)
+          used.add(j)
+        }
+      }
+      used.add(i)
+      const best = group.sort((x, y) => y.confidence - x.confidence)[0]
+      merged.push(best)
+    }
+
+    for (let i = 0; i < merged.length; i++) {
+      const f = merged[i]
+      allNodes.push({ id: `f_${i}`, type: 'fact', label: f.label, tags: f.tags })
+      for (const tag of f.tags) {
         if (!topicSet.has(tag)) topicSet.set(tag, [])
         topicSet.get(tag).push(`f_${i}`)
       }

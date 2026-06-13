@@ -294,6 +294,12 @@ async function getMemoryStore() {
     };
     import('./lib/tools/memory-store-ref.js').then(m => m.setMemoryStore(_MemoryStore));
     import('./lib/tools/index.js').then(m => { if (m.setMusicMemoryStore) m.setMusicMemoryStore(_MemoryStore); });
+    // 提醒推送：广播到所有已连接 WebSocket
+    import('./lib/tools/reminder-tool.js').then(m => {
+      m.setReminderSender((type, data) => {
+        wss.clients.forEach(c => { if (c.readyState === 1) c.send(JSON.stringify({ type, data })); });
+      });
+    });
   }
   return _MemoryStore;
 }
@@ -304,6 +310,76 @@ async function getRAGPipeline() {
     _RAGPipeline = await new RAGPipeline(getPersistDir()).ready();
   }
   return _RAGPipeline;
+}
+
+// ── 知识库懒加载 ──
+let _KBIndexer = null;
+let _KBWatcher = null;
+let _KBConfig = null;
+
+async function getKBConfig() {
+  if (!_KBConfig) {
+    const { KBConfig } = await import('./lib/knowledge/kb-config.js');
+    _KBConfig = new KBConfig();
+  }
+  return _KBConfig;
+}
+
+async function getKBIndexer() {
+  if (!_KBIndexer) {
+    const { KBIndexer } = await import('./lib/knowledge/kb-indexer.js');
+    _KBIndexer = new KBIndexer();
+  }
+  return _KBIndexer;
+}
+
+async function getKBWatcher() {
+  if (!_KBWatcher) {
+    const idx = await getKBIndexer();
+    await idx.init();
+    const cfg = await getKBConfig();
+    const { KBWatcher } = await import('./lib/knowledge/kb-watcher.js');
+    _KBWatcher = new KBWatcher({ config: cfg, indexer: idx });
+  }
+  return _KBWatcher;
+}
+
+// ── 知识图谱 + 成长引擎懒加载 ──
+let _KBGraph = null;
+let _ReflectionEngine = null;
+let _CuriosityEngine = null;
+
+async function getKBGraph() {
+  if (!_KBGraph) {
+    await (await getKBIndexer()).init();
+    const { KnowledgeGraph } = await import('./lib/knowledge/kb-graph.js');
+    _KBGraph = new KnowledgeGraph(await getKBSchemaInternal());
+  }
+  return _KBGraph;
+}
+
+async function getKBSchemaInternal() {
+  const idx = await getKBIndexer();
+  await idx.init();
+  return idx.schema;
+}
+
+async function getReflectionEngine() {
+  if (!_ReflectionEngine) {
+    const schema = await getKBSchemaInternal();
+    const { ReflectionEngine } = await import('./lib/knowledge/kb-reflection.js');
+    _ReflectionEngine = new ReflectionEngine({ schema, graph: await getKBGraph() });
+  }
+  return _ReflectionEngine;
+}
+
+async function getCuriosityEngine() {
+  if (!_CuriosityEngine) {
+    const schema = await getKBSchemaInternal();
+    const { CuriosityEngine } = await import('./lib/knowledge/kb-curiosity.js');
+    _CuriosityEngine = new CuriosityEngine({ schema, graph: await getKBGraph() });
+  }
+  return _CuriosityEngine;
 }
 
 function getPersistDir() {
@@ -446,6 +522,19 @@ async function handleAgentChat(ws, msg) {
       } catch {}
     }
 
+    // 知识缺口检测（后台，不阻塞）
+    try {
+      const lastUserMsg = messages.findLast(m => m.role === 'user');
+      if (lastUserMsg?.content) {
+        const curiosity = await getCuriosityEngine();
+        await curiosity.init();
+        const gaps = await curiosity.processUserMessage(lastUserMsg.content);
+        if (gaps.length > 0) {
+          log.log(`好奇心: 发现 ${gaps.length} 个新知识缺口`);
+        }
+      }
+    } catch {}
+
     // Notify heartbeat of user activity
     if (agent) {
       const hb = _Hub?.scheduler?.heartbeats?.get(agent.id);
@@ -508,6 +597,9 @@ wss.on('connection', (ws) => {
     platform: process.platform,
   });
 
+  // 语音会话 Map — 连接级别，跨消息持久
+  let _voiceSessions;
+
   ws.on('message', async (raw) => {
     let msg;
     try {
@@ -517,7 +609,6 @@ wss.on('connection', (ws) => {
     }
 
     const msgType = msg.type || '';
-    let _voiceSessions; // 语音会话 Map，在此作用域声明避免 ReferenceError
 
     switch (msgType) {
       case 'agent_chat':
@@ -556,6 +647,157 @@ wss.on('connection', (ws) => {
         const rag = await getRAGPipeline();
         const results = rag.search(msg.query || '', msg.k || 5);
         sendEvent(ws, 'rag_results', { request_id: msg.request_id, results }, msg.request_id);
+        break;
+      }
+      // ── 知识库操作 ──
+      case 'kb_search': {
+        try {
+          const idx = await getKBIndexer();
+          await idx.init();
+          const results = await idx.retriever.search(msg.query || '', { topK: msg.topK || 5, rerank: msg.rerank !== false });
+          sendEvent(ws, 'kb_search_result', { request_id: msg.request_id, results }, msg.request_id);
+        } catch (err) {
+          sendEvent(ws, 'error', { request_id: msg.request_id, content: '知识库搜索失败: ' + err.message }, msg.request_id);
+        }
+        break;
+      }
+      case 'kb_ask': {
+        (async () => {
+          try {
+            const idx = await getKBIndexer();
+            await idx.init();
+            const results = await idx.retriever.search(msg.query || '', { topK: 5 });
+
+            if (!results || results.length === 0) {
+              sendEvent(ws, 'kb_ask_result', {
+                request_id: msg.request_id,
+                answer: '知识库中没有找到相关信息。',
+                sources: [],
+              }, msg.request_id);
+              return;
+            }
+
+            // 读取 chunk 内容和对应文件名
+            const chunkIds = results.map(r => r.id);
+            const db = idx.schema.db;
+            const placeholders = chunkIds.map(() => '?').join(',');
+            const stmt = db.prepare(
+              `SELECT c.id, c.content, f.filename FROM chunks c JOIN files f ON c.file_id = f.id WHERE c.id IN (${placeholders})`
+            );
+            stmt.bind(chunkIds);
+
+            const chunkMap = new Map();
+            while (stmt.step()) {
+              const row = stmt.getAsObject();
+              chunkMap.set(row.id, { content: row.content, file: row.filename });
+            }
+            stmt.free();
+
+            // 按检索结果顺序构建上下文
+            const chunkItems = [];
+            for (const r of results) {
+              const info = chunkMap.get(r.id);
+              if (info) {
+                chunkItems.push({ id: r.id, content: info.content, file: info.file });
+              }
+            }
+
+            if (chunkItems.length === 0) {
+              sendEvent(ws, 'kb_ask_result', {
+                request_id: msg.request_id,
+                answer: '知识库中没有找到相关信息。',
+                sources: [],
+              }, msg.request_id);
+              return;
+            }
+
+            const context = chunkItems.map((c, i) => `[${i + 1}] 文件: ${c.file}\n${c.content}`).join('\n\n');
+
+            // 调用 LLM 生成回答
+            const { createLLM } = await import('./core/llm-client.js');
+            const llm = createLLM({
+              provider: msg.config?.provider || 'deepseek',
+              model: msg.config?.model || 'deepseek-chat',
+              apiKey: msg.config?.apiKey || '',
+              temperature: 0.3,
+              maxTokens: 1000,
+            });
+
+            const prompt = `基于以下知识库内容回答问题。如果知识库没有相关信息，就说不知道。\n\n知识库内容:\n${context}\n\n问题: ${msg.query}\n\n回答:`;
+
+            const { content } = await llm.invoke([
+              { role: 'user', content: prompt }
+            ]);
+
+            const sources = chunkItems.map(c => ({
+              chunkId: c.id,
+              content: c.content.slice(0, 200),
+              file: c.file,
+            }));
+
+            sendEvent(ws, 'kb_ask_result', {
+              request_id: msg.request_id,
+              answer: content || '知识库中没有找到相关信息。',
+              sources,
+            }, msg.request_id);
+          } catch (err) {
+            sendEvent(ws, 'error', {
+              request_id: msg.request_id,
+              content: '知识库问答失败: ' + err.message,
+            }, msg.request_id);
+          }
+        })();
+        break;
+      }
+      case 'kb_index_trigger': {
+        try {
+          const idx = await getKBIndexer();
+          await idx.init();
+          const result = await idx.fullScan();
+          sendEvent(ws, 'kb_index_done', { request_id: msg.request_id, ...result }, msg.request_id);
+        } catch (err) {
+          sendEvent(ws, 'error', { request_id: msg.request_id, content: '知识库索引失败: ' + err.message }, msg.request_id);
+        }
+        break;
+      }
+      case 'kb_index_rebuild': {
+        try {
+          const idx = await getKBIndexer();
+          await idx.init();
+          const result = await idx.fullScan();
+          sendEvent(ws, 'kb_index_done', { request_id: msg.request_id, rebuilt: true, ...result }, msg.request_id);
+        } catch (err) {
+          sendEvent(ws, 'error', { request_id: msg.request_id, content: '知识库重建失败: ' + err.message }, msg.request_id);
+        }
+        break;
+      }
+      case 'kb_config': {
+        try {
+          const cfg = await getKBConfig();
+          sendEvent(ws, 'kb_config', { config: cfg.get() }, msg.request_id);
+        } catch (err) {
+          sendEvent(ws, 'error', { request_id: msg.request_id, content: err.message }, msg.request_id);
+        }
+        break;
+      }
+      case 'kb_config_update': {
+        try {
+          const cfg = await getKBConfig();
+          const { key, value } = msg;
+          if (!key) throw new Error('缺少 key 参数');
+          cfg.set(key, value);
+          cfg.save();
+          // 如果更新了 watch.paths，重启监控
+          if (key === 'watch.paths' || key.startsWith('watch.')) {
+            const watcher = await getKBWatcher();
+            await watcher.stop();
+            await watcher.start();
+            log.log('监控已重新启动（配置变更）');
+          }
+          sendEvent(ws, 'kb_config_updated', { key, value }, msg.request_id);
+        } catch (err) {
+          sendEvent(ws, 'error', { request_id: msg.request_id, content: '配置更新失败: ' + err.message }, msg.request_id);
+        }
         break;
       }
       case 'get_memory_count': {
@@ -1005,9 +1247,10 @@ wss.on('connection', (ws) => {
 
       // ── Memory management (Phase 3) ──
       case 'memory_get_facts': {
-        const store = _MemoryManager?.factStore || (await getFactStore());
+        // 统一使用全局单例 _FactStore，避免多实例导致数据不同步
+        const store = await getFactStore();
         const rows = store?.getAll?.() || [];
-        const facts = rows.map(r => ({ fact: r.fact || r.content || r, tags: r.tags || [] }));
+        const facts = rows.map(r => ({ fact: r.fact, tags: r.tags || [], confidence: r.confidence || 0.5, created_at: r.created_at }));
         sendEvent(ws, 'memory_facts', { facts }, msg.request_id);
         break;
       }
@@ -1457,6 +1700,32 @@ function _preload() {
       log.warn(`预热失败: ${err.message}`);
     }
   }, 100); // Defer so server starts first
+
+  // 知识库监控自动启动（延迟 5 秒，等 Hub 就绪）
+  setTimeout(async () => {
+    try {
+      const watcher = await getKBWatcher();
+      await watcher.start();
+      if (watcher.isRunning) {
+        log.log('知识库监控已自动启动');
+      }
+    } catch (err) {
+      log.warn(`知识库监控启动失败: ${err.message}`);
+    }
+  }, 5000);
+
+  // 反思引擎定时运行（每 10 分钟检查一次）
+  setInterval(async () => {
+    try {
+      const engine = await getReflectionEngine();
+      const result = await engine.runReflection();
+      if (result.actions.length > 0) {
+        log.log(`反思完成: ${result.contradictions} 矛盾, ${result.duplicates} 重复, ${result.inferences} 推理`);
+      }
+    } catch (err) {
+      log.debug(`反思跳过: ${err.message}`);
+    }
+  }, 600_000); // 10 分钟
 }
 
 // ── Start ──
@@ -1466,7 +1735,7 @@ httpServer.listen(PORT, '127.0.0.1', async () => {
   _preload();
   // Init Hub non-blocking — server responds immediately,
   // skills/plugins/heartbeats load in background
-  initHub().catch(err => log.error(`Hub 初始化失败: ${err.message}`));
+  initHub().catch(err => { log.error(`Hub 初始化失败: ${err.message}`); log.error(err.stack); });
 });
 
 // Graceful shutdown

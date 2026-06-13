@@ -55,10 +55,22 @@ def tts_generate():
                 q.put(("error", msg))
 
         def gen():
+            # ── 将 Sonder 情绪标签映射为语速/音调参数 ──
+            # CosyVoice v3 不支持原生情绪标签，通过语速变化传递情感色彩
+            emotion = data.get("emotion", "neutral")
+            emotion_speed = {
+                "neutral": 1.0, "happy": 1.15, "sad": 0.85, "angry": 1.2,
+                "worried": 0.9, "encouraging": 1.05, "funny": 1.25, "sarcastic": 1.1,
+                "gentle": 0.8,
+            }.get(emotion, 1.0)
+            # 用户语速 × 情绪语速
+            user_speed = float(data.get("speed", 1.0))
+            final_speed = round(user_speed * emotion_speed, 2)
+
             synthesizer = SpeechSynthesizer(
-                model="cosyvoice-v3-flash",
+                model="cosyvoice-v3",        # 用完整版替代 flash，音质和情感更好
                 voice=voice,
-                speech_rate=1.0,
+                speech_rate=final_speed,
                 callback=StreamCB(),
             )
             # 在后台线程调用
@@ -66,9 +78,9 @@ def tts_generate():
             threading.Thread(target=lambda: synthesizer.call(text), daemon=True).start()
 
             while True:
-                typ, data = q.get()
+                typ, chunk = q.get()
                 if typ == "chunk":
-                    b64 = base64.b64encode(data).decode("utf-8")
+                    b64 = base64.b64encode(chunk).decode("utf-8")
                     yield json.dumps({"audio": b64}) + "\n"
                 elif typ == "done":
                     elapsed = time.time() - t0

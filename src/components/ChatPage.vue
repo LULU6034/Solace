@@ -215,6 +215,20 @@ async function triggerMusicPlay(songId, songName, artist, cover, reason) {
     }
     getGlobalAudio().src = r.data.url;
     getGlobalAudio().play().catch(() => {});
+    window.__musicCurrentTrack = { songId: String(songId), name: songName, artist: artist || '', cover: cover || '' };
+    // 播放时：读 stripAndSaveMusicList 刚存的歌单，把当前歌插入第一位；若歌单为空则只放当前这首
+    try {
+      let pl = JSON.parse(localStorage.getItem('music-playlist') || '[]');
+      const sid = String(songId);
+      // 去掉当前歌的旧位置（如果重复播放）
+      pl = pl.filter(s => String(s.songId) !== sid);
+      // 当前歌插入第一位
+      pl.unshift({ songId: sid, name: songName, artist: artist || '', cover: cover || '' });
+      if (pl.length > 30) pl.length = 30;
+      console.log('[Music] triggerMusicPlay 歌单:', pl.length, '首, 当前:', songName);
+      localStorage.setItem('music-playlist', JSON.stringify(pl));
+      window.dispatchEvent(new CustomEvent('music-playlist-updated'));
+    } catch {}
     window.dispatchEvent(new CustomEvent('music-nowplaying', {
       detail: { songId, name: songName, artist, cover, reason }
     }));
@@ -223,12 +237,61 @@ async function triggerMusicPlay(songId, songName, artist, cover, reason) {
 }
 
 function parseNowPlaying(content) {
+  // 清理 MUSIC_LIST（不显示 + 保存歌单）
+  stripAndSaveMusicList(content);
+  content = content.replace(/MUSIC_?LIST[\s\S]*$/i, '').trim();
   const m = content.match(/NOW_PLAYING\s*(\{[\s\S]*?\})/);
   if (!m) return { content, song: null };
   try {
     const song = JSON.parse(m[1]);
-    return { content: content.replace(m[0], '').trim(), song };
+    let text = content.replace(m[0], '').trim();
+    if (!text) text = `♪ ${song.name} — ${song.artist || '未知歌手'}`;
+    return { content: text, song };
   } catch { console.warn('[Music] NOW_PLAYING JSON parse failed:', m[1]); return { content, song: null }; }
+}
+
+// ── 音乐歌单存储 + 显示清理 ──
+function stripAndSaveMusicList(text) {
+  // 匹配 MUSIC_LIST [...] 或 MUSICLIST {...}{...}（LLM 可能拼错格式）
+  let songs = null;
+  // 标准格式: MUSIC_LIST [{"songId":...},...]
+  const m1 = text.match(/MUSIC_?LIST\s*(\[[\s\S]*?\])/);
+  if (m1) {
+    try { songs = JSON.parse(m1[1]); } catch {}
+  }
+  // LLM 产出的非标准格式: MUSICLIST\n{...}\n{...}（逐行 JSON 对象）
+  if (!songs) {
+    const m2 = text.match(/MUSIC_?LIST\s*([\s\S]*?)$/);
+    if (m2) {
+      const objs = [];
+      const re = /\{[^}]+\}/g;
+      let objMatch;
+      while ((objMatch = re.exec(m2[1])) !== null) {
+        try {
+          const obj = JSON.parse(objMatch[0]);
+          const id = obj.songId || obj.songld || obj.id;
+          const name = obj.name || obj.songName || '';
+          if (id && name) objs.push({ songId: String(id), name, artist: obj.artist || '', cover: obj.cover || '' });
+        } catch {}
+      }
+      if (objs.length) songs = objs;
+    }
+  }
+
+  if (songs && Array.isArray(songs) && songs.length) {
+    // 新推荐直接替换旧歌单
+    const clean = [];
+    for (const s of songs) {
+      const id = s.songId || s.songld || s.id;
+      if (id) clean.push({ songId: String(id), name: s.name || '', artist: s.artist || '', cover: s.cover || '' });
+    }
+    console.log('[Music] 歌单已替换:', clean.length, '首', clean.map(s=>s.name).join(', '));
+    localStorage.setItem('music-playlist', JSON.stringify(clean));
+    window.dispatchEvent(new CustomEvent('music-playlist-updated'));
+  }
+
+  // 从显示文本中移除所有 MUSIC_LIST / MUSICLIST 相关内容
+  return text.replace(/MUSIC_?LIST[\s\S]*$/i, '').trim();
 }
 
 // ── Speech ──
@@ -250,12 +313,29 @@ let fbqBackup=null;try{const fbq=JSON.parse(localStorage.getItem('music-feedback
 if(ok&&fbqBackup){try{localStorage.setItem('music-feedback-queue','[]')}catch{}}
 if(ok)return;await runLegacy(c)}
 
-async function runAgent(c,config){let mi=-1,us=[],fullContent='',firstContent=true,msgCreated=false;cleanupListeners(null);activeAbortController=new AbortController();const sig=activeAbortController.signal;try{const rd=await window.electronAPI?.agentGetReady();if(!rd?.ready)return false;const steps=[];agentSteps.value=steps;const lr={text:''};function em(){if(!msgCreated){c.messages.push({role:'assistant',content:'',timestamp:new Date(),_reasoning:'',_reasoningOpen:true});mi=c.messages.length-1;msgCreated=true}};function sd(){nextTick(()=>msgEnd.value?.scrollIntoView({behavior:'smooth'}))};us.push(window.electronAPI.onAgentThought(d=>{const x=d?.data||d;const t=typeof x==='string'?x:x?.content||'';if(t){steps.push({type:'thought',content:t});sd()}}));us.push(window.electronAPI.onAgentAction(d=>{const x=d?.data||d;steps.push({type:'action',tool:x?.tool||'未知工具',input:x?.input||x,round:x?.round||''});sd()}));us.push(window.electronAPI.onAgentObservation(d=>{const x=d?.data||d;steps.push({type:'observation',tool:x?.tool||'工具',content:x?.content||String(x),round:x?.round||''});sd()}));us.push(window.electronAPI.onAgentChunk(d=>{if(sig.aborted)return;em();const x=d?.data||d;if(firstContent){fullContent='';firstContent=false};fullContent+=x?.content||'';if(mi>=0&&c.messages[mi])c.messages[mi].content=fullContent;sd()}));us.push(window.electronAPI.onAgentReasoningChunk(d=>{if(sig.aborted)return;em();const x=d?.data||d;const ck=x?.content||'';if(ck==='.')return;lr.text+=ck;reasoningText.value=lr.text;sd()}));us.push(window.electronAPI.onAgentDone(d=>{if(sig.aborted)return;em();const x=d?.data||d;const finalContent=x?.content||fullContent;if(finalContent&&mi>=0&&c.messages[mi]){const parsed=parseNowPlaying(finalContent);c.messages[mi].content=parsed.content;if(parsed.song){triggerMusicPlay(parsed.song.songId,parsed.song.name,parsed.song.artist,parsed.song.cover,parsed.song.reason)}}if(mi>=0&&c.messages[mi]){c.messages[mi].elapsed=elapsedTime.value;c.messages[mi]._steps=[...steps]}}));us.push(window.electronAPI.onAgentError(d=>{if(sig.aborted)return;em();const x=d?.data||d;if(mi>=0&&c.messages[mi])c.messages[mi].content=`❌ ${x?.content||'Agent 执行出错'}`}));us.push(window.electronAPI.onAgentToolApprovalRequest(d=>{const x=d?.data||d;pendingApproval.value={approvalId:x?.approval_id||'',tool:x?.tool||'',input:x?.input||{}}}));const ph=JSON.parse(JSON.stringify(c.history));const pc=JSON.parse(JSON.stringify(config));pc.userNickname=localStorage.getItem('user-nickname')||'';pc.agentPersonality=localStorage.getItem('agent-personality')||'default';pc.customPersonalities=JSON.parse(localStorage.getItem('custom-personalities')||'[]');const result=await window.electronAPI.agentChat(pc,ph,`conv-${c.id}`);cleanupListeners(us);const sr=lr.text||reasoningText.value;if(mi>=0&&c.messages[mi]?.role==='assistant'&&sr){c.messages[mi]={...c.messages[mi],_reasoning:sr,_reasoningOpen:true}};reasoningText.value='';agentSteps.value=[];reasoningExpanded.value=false;pendingApproval.value=null;stopTimer();loading.value=false;sendState.value='sent';setTimeout(()=>{if(sendState.value==='sent')sendState.value='idle'},1500);activeAbortController=null;let fc=c.messages[mi]?.content||'';if(fc){const parsed=parseNowPlaying(fc);if(parsed.song){fc=parsed.content;if(mi>=0)c.messages[mi].content=fc;triggerMusicPlay(parsed.song.songId,parsed.song.name,parsed.song.artist,parsed.song.cover,parsed.song.reason)}};if(fc&&!fc.startsWith('❌'))c.history.push({role:'assistant',content:fc});return true}catch(err){console.error('[Agent]',err);if(mi>=0&&c.messages[mi]?.role==='assistant')c.messages.pop();return false}finally{cleanupListeners(us);agentSteps.value=[];pendingApproval.value=null;activeAbortController=null}}
+async function runAgent(c,config){let mi=-1,us=[],fullContent='',firstContent=true,msgCreated=false;cleanupListeners(null);activeAbortController=new AbortController();const sig=activeAbortController.signal;try{const rd=await window.electronAPI?.agentGetReady();if(!rd?.ready)return false;const steps=[];agentSteps.value=steps;const lr={text:''};function em(){if(!msgCreated){c.messages.push({role:'assistant',content:'',timestamp:new Date(),_reasoning:'',_reasoningOpen:true});mi=c.messages.length-1;msgCreated=true}};function sd(){nextTick(()=>msgEnd.value?.scrollIntoView({behavior:'smooth'}))};us.push(window.electronAPI.onAgentThought(d=>{const x=d?.data||d;const t=typeof x==='string'?x:x?.content||'';if(t){steps.push({type:'thought',content:t});sd()}}));us.push(window.electronAPI.onAgentAction(d=>{const x=d?.data||d;steps.push({type:'action',tool:x?.tool||'未知工具',input:x?.input||x,round:x?.round||''});sd()}));us.push(window.electronAPI.onAgentObservation(d=>{const x=d?.data||d;steps.push({type:'observation',tool:x?.tool||'工具',content:x?.content||String(x),round:x?.round||''});sd()}));us.push(window.electronAPI.onAgentChunk(d=>{if(sig.aborted)return;em();const x=d?.data||d;if(firstContent){fullContent='';firstContent=false};fullContent+=x?.content||'';if(mi>=0&&c.messages[mi])c.messages[mi].content=fullContent;sd()}));us.push(window.electronAPI.onAgentReasoningChunk(d=>{if(sig.aborted)return;em();const x=d?.data||d;const ck=x?.content||'';if(ck==='.')return;lr.text+=ck;reasoningText.value=lr.text;sd()}));us.push(window.electronAPI.onAgentDone(d=>{if(sig.aborted)return;em();const x=d?.data||d;const finalContent=x?.content||fullContent;if(finalContent&&mi>=0&&c.messages[mi]){stripAndSaveMusicList(finalContent);const parsed=parseNowPlaying(finalContent);c.messages[mi].content=parsed.content;if(parsed.song){triggerMusicPlay(parsed.song.songId,parsed.song.name,parsed.song.artist,parsed.song.cover,parsed.song.reason)}}if(mi>=0&&c.messages[mi]){c.messages[mi].elapsed=elapsedTime.value;c.messages[mi]._steps=[...steps]}}));us.push(window.electronAPI.onAgentError(d=>{if(sig.aborted)return;em();const x=d?.data||d;if(mi>=0&&c.messages[mi])c.messages[mi].content=`❌ ${x?.content||'Agent 执行出错'}`}));us.push(window.electronAPI.onAgentToolApprovalRequest(d=>{const x=d?.data||d;pendingApproval.value={approvalId:x?.approval_id||'',tool:x?.tool||'',input:x?.input||{}}}));// 注入音乐上下文
+var _mCtx = window.__musicCurrentTrack;
+var _ctxMsg = null;
+if (_mCtx && _mCtx.songId) {
+  try {
+    var _pl = JSON.parse(localStorage.getItem('music-playlist') || '[]');
+    var _curIdx = _pl.findIndex(function(s){return String(s.songId)===String(_mCtx.songId)});
+    _ctxMsg = '[系统] 当前正在播放: ' + _mCtx.name + ' - ' + (_mCtx.artist||'');
+    if (_curIdx >= 0 && _curIdx < _pl.length - 1) {
+      var _next = _pl.slice(_curIdx+1, _curIdx+4).map(function(s){return s.name+' - '+s.artist+' (songId='+s.songId+')'}).join('; ');
+      if (_next) _ctxMsg += '。接下来: ' + _next;
+    }
+    if (_curIdx > 0) {
+      var _prev = _pl[_curIdx-1];
+      if (_prev) _ctxMsg += '。上一首: ' + _prev.name + ' - ' + _prev.artist + ' (songId='+_prev.songId+')';
+    }
+  } catch(e) {}
+};const ph=JSON.parse(JSON.stringify(c.history));if(_ctxMsg){ph.push({role:'user',content:_ctxMsg})};const pc=JSON.parse(JSON.stringify(config));pc.userNickname=localStorage.getItem('user-nickname')||'';pc.agentPersonality=localStorage.getItem('agent-personality')||'default';pc.customPersonalities=JSON.parse(localStorage.getItem('custom-personalities')||'[]');const result=await window.electronAPI.agentChat(pc,ph,`conv-${c.id}`);cleanupListeners(us);const sr=lr.text||reasoningText.value;if(mi>=0&&c.messages[mi]?.role==='assistant'&&sr){c.messages[mi]={...c.messages[mi],_reasoning:sr,_reasoningOpen:true}};reasoningText.value='';agentSteps.value=[];reasoningExpanded.value=false;pendingApproval.value=null;stopTimer();loading.value=false;sendState.value='sent';setTimeout(()=>{if(sendState.value==='sent')sendState.value='idle'},1500);activeAbortController=null;let fc=c.messages[mi]?.content||'';stripAndSaveMusicList(fc);if(fc){const parsed=parseNowPlaying(fc);if(parsed.song){fc=parsed.content;if(mi>=0)c.messages[mi].content=fc;triggerMusicPlay(parsed.song.songId,parsed.song.name,parsed.song.artist,parsed.song.cover,parsed.song.reason)}};if(fc&&!fc.startsWith('❌'))c.history.push({role:'assistant',content:fc});return true}catch(err){console.error('[Agent]',err);if(mi>=0&&c.messages[mi]?.role==='assistant')c.messages.pop();return false}finally{cleanupListeners(us);agentSteps.value=[];pendingApproval.value=null;activeAbortController=null}}
 
 async function runLegacy(c){try{const{llmService}=await import('../lib/llm/LLMProvider');if(!llmService.isInitialized()){loading.value=false;sendState.value='idle';return};let full='';c.messages.push({role:'assistant',content:'',timestamp:new Date()});await llmService.chat([{role:'system',content:'你是一个桌面上的智能助手。回复简洁高效。'},...c.history],chunk=>{full+=chunk;c.messages[c.messages.length-1].content=full});c.history.push({role:'assistant',content:full})}catch(err){c.messages.push({role:'assistant',content:`❌ ${err}`,timestamp:new Date()})}finally{stopTimer();loading.value=false;sendState.value='idle'}}
 
 // ── Feed ──
-async function feedFile(data){const c=conv.value;const dn=data.name||'未知文件';let fc='';if(window.electronAPI?.readFileContent){const r=await window.electronAPI.readFileContent(data.path);if(r.success)fc=r.content};const um=fc?`📎 喂食了文件: ${dn}\n\n\`\`\`\n${fc.slice(0,3000)}\n\`\`\``:`📎 喂食了文件: ${dn}（无法读取文件内容）`;c.messages.push({role:'user',content:um,timestamp:new Date()});c.history.push({role:'user',content:um});loading.value=true;let sc=await window.electronAPI?.loadConfig();if(!sc){const s=localStorage.getItem('llm-config');if(s){try{sc=JSON.parse(s)}catch{}}};if(!sc){loading.value=false;sendState.value='idle';return};if(convModel.value)sc.model=convModel.value;const ok=await runAgent(c,sc);if(ok)return;await runLegacy(c)}
+async function feedFile(data){const c=conv.value;const dn=data.name||'未知文件';let um='';let hasBinary=false;let binaryImages=[];if(window.electronAPI?.readFileContent){const r=await window.electronAPI.readFileContent(data.path);if(r.success){if(r.binary){hasBinary=true;const kb=Math.round(r.size/1024);um=`📎 喂食了文件: ${dn} (${kb}KB, ${r.ext})\n\n[系统已将文件内容编码，Agent 可使用 read_image 工具查看]`;binaryImages.push(r.base64)}else{um=`📎 喂食了文件: ${dn}\n\n\`\`\`\n${r.content.slice(0,3000)}\n\`\`\``}}}if(!um)um=`📎 喂食了文件: ${dn}（无法读取文件内容）`;const m={role:'user',content:um,timestamp:new Date()};if(hasBinary){m.images=binaryImages;m._previewImages=binaryImages}c.messages.push(m);const hm={role:'user',content:um};if(hasBinary){hm.images=binaryImages}c.history.push(hm);loading.value=true;let sc=await window.electronAPI?.loadConfig();if(!sc){const s=localStorage.getItem('llm-config');if(s){try{sc=JSON.parse(s)}catch{}}};if(!sc){loading.value=false;sendState.value='idle';return};if(convModel.value)sc.model=convModel.value;const ok=await runAgent(c,sc);if(ok)return;await runLegacy(c)}
 
 // ── Anim ──
 function onTabBeforeEnter(el){el.style.opacity='0';el.style.transform='translateX(-12px) scale(0.9)'}

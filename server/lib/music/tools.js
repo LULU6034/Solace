@@ -32,6 +32,99 @@ const SCENE_DEFAULTS = {
   night: { energy: 0.3, desc: '深夜' },
 };
 
+// ── 最近播放去重 ──
+const _recentPlayed = [];
+_loadRecentPlayed(); // 启动时从文件恢复
+
+// 持久化最近播放（写入 agent-data 目录）
+function _playedFilePath() {
+  try {
+    const dir = path.join(process.env.HOME || process.env.USERPROFILE || '', '.ai-desktop-pet', 'agent-data');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    return path.join(dir, 'recent-played.json');
+  } catch { return null; }
+}
+function _loadRecentPlayed() {
+  try {
+    const p = _playedFilePath();
+    if (p && fs.existsSync(p)) {
+      const data = JSON.parse(fs.readFileSync(p, 'utf-8'));
+      _recentPlayed.length = 0; _recentPlayed.push(...(data.ids || []));
+    }
+  } catch {}
+}
+function _saveRecentPlayed() {
+  try {
+    const p = _playedFilePath();
+    if (p) fs.writeFileSync(p, JSON.stringify({ ids: _recentPlayed.slice(-30), updated: Date.now() }));
+  } catch {}
+}
+
+const MAX_RECENT = 30;
+function markAsPlayed(songId) {
+  if (!songId) return;
+  const idx = _recentPlayed.indexOf(songId);
+  if (idx >= 0) _recentPlayed.splice(idx, 1);
+  _recentPlayed.push(songId);
+  if (_recentPlayed.length > MAX_RECENT) _recentPlayed.shift();
+  _saveRecentPlayed();
+}
+
+function getRecentPlayedSet() {
+  return new Set(_recentPlayed);
+}
+
+function getRecentPlayed(n) {
+  return _recentPlayed.slice(-n);
+}
+
+// 伪随机洗牌（每 10 分钟换一次种子）
+function shuffleArray(arr) {
+  // 用即时 Math.random 做基础洗牌，确保每次调用都有不同结果
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
+
+// ── 情绪 → 搜索关键词映射（不只搜字面意义）──
+const MOOD_KEYWORDS = {
+  '温柔': 'ballad acoustic soul 慢歌',
+  '安静': 'ambient piano chill instrumental 纯音乐',
+  '放松': 'chill lofi acoustic jazz 轻音乐',
+  '开心': 'upbeat pop dance funk happy',
+  '欢快': 'upbeat dance pop electronic 快节奏',
+  '悲伤': 'ballad sad indie folk 伤感',
+  'emo': 'sad indie alternative rock',
+  '伤感': 'ballad sad pop 慢歌',
+  '治愈': 'acoustic folk piano singer-songwriter',
+  '热血': 'rock metal electronic high-energy 燃',
+  '燃': 'rock electronic epic high-energy',
+  '运动': 'electronic dance hiphop rock 跑步 健身',
+  '跑步': 'electronic dance rock upbeat 运动',
+  '专注': 'instrumental ambient piano classical 学习 工作',
+  '学习': 'lofi instrumental piano classical ambient',
+  '工作': 'lofi jazz instrumental ambient',
+  '清新': 'acoustic indie folk pop 早晨',
+  '浪漫': 'jazz soul r&b acoustic 情歌',
+  '甜美': 'pop acoustic indie female-vocal',
+  '酷': 'electronic hiphop rock indie',
+  '伤感': 'ballad sad indie folk',
+  '忧郁': 'blues jazz ballad indie',
+  '慵懒': 'lofi chill jazz acoustic',
+  '迷幻': 'psychedelic electronic ambient indie',
+  '复古': 'disco funk soul classic-rock 80s 90s',
+};
+
+function moodToKeywords(mood) {
+  if (!mood) return '';
+  for (const [key, val] of Object.entries(MOOD_KEYWORDS)) {
+    if (mood.includes(key)) return val;
+  }
+  // 无匹配时用 mood 本身 + 热门搜索
+  return mood + ' ' + '热门 新歌';
+}
+
 // ── 流派词典 ──
 const ARTIST_GENRES = {
   '周杰伦': 'pop mandopop',
@@ -138,7 +231,7 @@ function loadCookie() {
 let _neteaseApi = null;
 function getNeteaseApi() {
   if (!_neteaseApi) {
-    try { _neteaseApi = _require('NeteaseCloudMusicApi'); } catch {}
+    try { _neteaseApi = _require('@neteasecloudmusicapienhanced/api'); } catch {}
   }
   return _neteaseApi;
 }
@@ -249,14 +342,14 @@ function scoreSong(song, profile, scene, query) {
   // 艺人匹配
   const artists = song.artist.split(' / ');
   for (const a of artists) {
-    const aw = profile.topArtists.find(t => t.name === a);
-    if (aw) score += aw.weight * 3;
+    const aw = profile.topArtists.find(t => t.name === a || a.includes(t.name) || t.name.includes(a));
+    if (aw) score += aw.weight * 15;  // 重权重：喜欢的艺人
   }
-  // 流派匹配
-  const genres = (song.genres || '').split(' ');
+  // 流派匹配（包含 inferGenres 推导的流派）
+  const genres = (song.genres || inferGenres(song.artist) || '').split(' ').filter(Boolean);
   for (const g of genres) {
-    const gw = profile.topGenres.find(t => g && t.name.includes(g));
-    if (gw) score += gw.weight * 2;
+    const gw = profile.topGenres.find(t => g && (t.name.includes(g) || g.includes(t.name)));
+    if (gw) score += gw.weight * 8;  // 重权重：喜欢的流派
   }
   // 场景匹配
   if (scene) {
@@ -333,9 +426,12 @@ export const searchMusic = {
     const body = await callNetease('cloudsearch', { keywords: query, limit: 10, type: 1 });
     if (!body?.result?.songs?.length) return '未找到相关歌曲';
     const songs = body.result.songs.slice(0, 10).map(mapSong);
-    return songs.map((s, i) =>
-      `[${i + 1}] ${s.name} — ${s.artist} (ID: ${s.id}, ${s.duration}秒)`
+    const best = songs.slice(0, 5);
+    const list = best.map((s, i) =>
+      `[${i + 1}] songId="${s.id}" songName="${s.name}" artist="${s.artist}"`
     ).join('\n');
+    const pl = JSON.stringify(best.map(s => ({ songId: s.id, name: s.name, artist: s.artist, cover: s.cover || '' })));
+    return `找到 ${songs.length} 首，取前5首（直接选第一首调用 play_music）:\n${list}\n\n请调用 play_music(songId="${best[0].id}", songName="${best[0].name}", artist="${best[0].artist}")\nMUSIC_LIST ${pl}`;
   },
 };
 
@@ -380,36 +476,116 @@ export const recommendMusic = {
     };
 
     if (cookie) {
-      // 每日推荐（权重最高）
       try {
         const daily = await callNetease('recommend_songs');
-        addCandidates(daily?.data?.dailySongs || [], 'daily');
-      } catch {}
-      // 最近播放
-      try {
-        const recent = await callNetease('user_record', { type: 1 });
-        const recents = [];
-        for (const weekData of recent?.weekData || []) {
-          recents.push(...(weekData.song ? [weekData.song] : []));
-        }
-        for (const allData of recent?.allData || []) {
-          recents.push(...(allData.song ? [allData.song] : []));
-        }
-        addCandidates(recents.slice(0, 30), 'recent');
-      } catch {}
-      // 私人FM
+        if (daily?.data?.dailySongs?.length) { addCandidates(daily.data.dailySongs, 'daily'); log.log(`每日推荐: ${daily.data.dailySongs.length} 首`); }
+      } catch(e) { log.warn(`recommend_songs 失败: ${e.message}`); }
       try {
         const fm = await callNetease('personal_fm');
-        addCandidates(fm?.data || [], 'fm');
+        if (fm?.data?.length) { addCandidates(fm.data, 'fm'); log.log(`私人FM: ${fm.data.length} 首`); }
+      } catch(e) { log.warn(`personal_fm 失败: ${e.message}`); }
+      // 用户喜欢的歌曲（最强个性化信号）
+      try {
+        // 先从账号信息获取 uid
+        let uid = '';
+        try {
+          const account = await callNetease('user_account');
+          uid = String(account?.profile?.userId || account?.account?.id || '');
+        } catch {}
+        if (uid) {
+          const liked = await callNetease('likelist', { uid });
+          if (liked?.ids?.length) {
+            const likedDetail = await callNetease('song_detail', { ids: liked.ids.slice(0, 500).join(',') });
+            if (likedDetail?.songs?.length) { addCandidates(likedDetail.songs.slice(0, 50), 'liked'); log.log(`喜欢列表: ${Math.min(50, likedDetail.songs.length)} 首`); }
+          }
+        } else {
+          log.warn('likelist: 无法获取用户 UID，跳过');
+        }
+      } catch(e) { log.warn(`NetEase likelist 失败: ${e.message}`); }
+      // 排行榜/热门歌单
+      try {
+        const topList = await callNetease('top_list', { id: 3778678 });
+        if (topList?.playlist?.tracks?.length) { addCandidates(topList.playlist.tracks.slice(0, 20), 'toplist'); log.log(`热歌榜: ${Math.min(20, topList.playlist.tracks.length)} 首`); }
+      } catch {}
+      try {
+        const newSongs = await callNetease('top_song', { type: 0 });
+        if (newSongs?.data?.length) { addCandidates(newSongs.data.slice(0, 15), 'new'); log.log(`新歌速递: ${Math.min(15, newSongs.data.length)} 首`); }
+      } catch {}
+      // 个性化推荐歌单（网易云首页推荐）
+      try {
+        const personalized = await callNetease('personalized', { limit: 10 });
+        if (personalized?.result?.length) {
+          const picks = personalized.result.sort(() => Math.random() - 0.5).slice(0, 2);
+          for (const pl of picks) {
+            try {
+              const detail = await callNetease('playlist_detail', { id: pl.id });
+              if (detail?.playlist?.tracks?.length) {
+                addCandidates(detail.playlist.tracks.slice(0, 30), 'personalized');
+              }
+            } catch {}
+          }
+          log.log(`个性化歌单: ${picks.length} 个, 新增候选`);
+        }
+      } catch(e) { log.warn(`personalized 失败: ${e.message}`); }
+    }
+
+    // 偏好歌手的热门 50 首
+    const topArtists = profile.topArtists?.slice(0, 3) || [];
+    for (const artist of topArtists) {
+      try {
+        const searchRes = await callNetease('cloudsearch', { keywords: artist.name, limit: 1, type: 100 });
+        const artistId = searchRes?.result?.artists?.[0]?.id;
+        if (artistId) {
+          const topSongs = await callNetease('artist_top_song', { id: artistId });
+          if (topSongs?.songs?.length) {
+            addCandidates(topSongs.songs.slice(0, 15), 'artist_top');
+            log.log(`艺人热歌 [${artist.name}]: ${Math.min(15, topSongs.songs.length)} 首`);
+          }
+        }
       } catch {}
     }
 
-    // 3. 评分+排序
-    const scored = candidates
-      .map(s => ({ ...s, _score: scoreSong(s, profile, scene, mood) }))
+    // cloudsearch 多维搜索
+    const genreKw = profile.topGenres?.slice(0, 3) || [];
+    const hourSeed = Math.floor(Date.now() / 3600000);
+    const moodSearch = moodToKeywords(mood);
+    const diverseGenres = ['pop', 'rock', 'electronic', 'r&b', 'folk', 'jazz', 'indie', 'classical', 'hiphop'];
+    const shuffledGenres = [...diverseGenres].sort(() => Math.random() - 0.5);
+    const searchQueries = [
+      moodSearch,
+      period === 'night' || period === 'late_night' ? '安静 慢歌 钢琴 acoustic' : '热门 新歌 流行',
+      shuffledGenres[0] + ' ' + shuffledGenres[1],
+      shuffledGenres[2] + ' ' + shuffledGenres[3],
+      ...topArtists.map(a => a.name),
+      ...genreKw,
+    ].filter(Boolean);
+    // 搜索 5 个维度
+    for (let si = 0; si < Math.min(5, searchQueries.length); si++) {
+      const qi = (hourSeed + si * 3) % searchQueries.length;
+      const q = searchQueries[qi];
+      try {
+        const extra = await callNetease('cloudsearch', { keywords: q, limit: 15, offset: (qi * 7 + hourSeed) % 25, type: 1 });
+        if (extra?.result?.songs?.length) addCandidates(extra.result.songs, 'search');
+      } catch {}
+    }
+    log.log(`候选池: ${candidates.length} 首 (daily/fm/liked/toplist/new/personalized/artist_top/search)`);
+
+    // 3. 排除最近播放过的（防重复）
+    const recentPlayedSet = getRecentPlayedSet();
+    const fresh = candidates.filter(s => !recentPlayedSet.has(s.id));
+    if (fresh.length < 3) {
+      // 候选太少时只排除最近 3 首
+      const recent3 = getRecentPlayed(3);
+      const ok = candidates.filter(s => !recent3.includes(s.id));
+      if (ok.length >= 3) { fresh.length = 0; fresh.push(...ok); }
+    }
+
+    // 4. 评分 + 更强的随机扰动 + 排序
+    const scored = (fresh.length >= 3 ? fresh : candidates)
+      .map(s => ({ ...s, _score: scoreSong(s, profile, scene, mood) + Math.random() * 0.3 }))
       .sort((a, b) => b._score - a._score);
 
-    // 4. 多样性过滤：同艺人 ≤ 2 首，同流派 ≤ 3 首
+    // 5. 多样性过滤：同艺人 ≤ 2 首
     const artistCount = {};
     const filtered = [];
     for (const s of scored) {
@@ -418,27 +594,22 @@ export const recommendMusic = {
       if (artistCount[primaryArtist] <= 2) filtered.push(s);
     }
 
-    const top = filtered.slice(0, Math.min(count, 10));
+    // 6. 取前 N 首，随机打乱前 5 避免每次一样
+    const pool = filtered.slice(0, Math.min(count + 5, 15));
+    shuffleArray(pool);
+    const top = pool.slice(0, Math.min(count, 10));
 
     if (!top.length) {
-      // 无数据时尝试搜索 mood 关键词
-      if (mood) {
-        const searchBody = await callNetease('cloudsearch', { keywords: mood, limit: 10, type: 1 });
-        if (searchBody?.result?.songs?.length) {
-          const fallback = searchBody.result.songs.slice(0, 5).map(mapSong);
-          return fallback.map((s, i) =>
-            `[${i + 1}] ${s.name} — ${s.artist} (ID: ${s.id})`
-          ).join('\n') + '\n\n（仅基于关键词搜索，登录网易云后可获得个性化推荐）';
-        }
-      }
-      return '暂无可推荐的歌曲。请登录网易云音乐以获取个性化推荐。';
+      return '暂无可推荐的歌曲，请稍后再试。';
     }
 
     const reason = generateReason(top[0], profile, scene);
-    const lines = top.map((s, i) =>
-      `[${i + 1}] ${s.name} — ${s.artist} (ID: ${s.id}) · ${s._source}`
+    const best = top.slice(0, 5);
+    const lines = best.map((s, i) =>
+      `[${i + 1}] songId="${s.id}" songName="${s.name}" artist="${s.artist}"`
     );
-    return `${reason}：\n\n${lines.join('\n')}\n\n请调用 play_music 播放你选中的歌曲，并告诉用户推荐理由。`;
+    const playlistJson = JSON.stringify(best.map(s => ({ songId: s.id, name: s.name, artist: s.artist, cover: s.cover || '' })));
+    return `${reason}\n\n${lines.join('\n')}\n\n请调用 play_music(songId="${best[0].id}", songName="${best[0].name}", artist="${best[0].artist}")\nMUSIC_LIST ${playlistJson}`;
   },
 };
 
@@ -461,6 +632,7 @@ export const playMusic = {
   },
   async invoke({ songId, songName, artist, reason }) {
     log.log(`play_music 被调用: ${songName} (ID: ${songId}), reason: ${reason}`);
+    markAsPlayed(String(songId));
     // 验证歌曲可播放
     const urlBody = await callNetease('song_url_v1', { id: String(songId), level: 'standard' });
     const playable = urlBody?.data?.[0]?.url;
@@ -484,5 +656,46 @@ export const playMusic = {
   },
 };
 
+export const playSimilar = {
+  name: 'play_similar',
+  description: `心动模式——播一首与当前歌曲风格相似的歌。用户说"来首类似的"、"换一首差不多风格的"、"有没有像这首一样的"时使用。
+参数 songId: 当前正在播放的歌曲 ID。`,
+  parameters: {
+    type: 'object',
+    properties: {
+      songId: { type: 'string', description: '当前歌曲 ID，以此为基础找相似歌曲' },
+    },
+    required: ['songId'],
+  },
+  async invoke({ songId }) {
+    log.log(`play_similar 被调用: songId=${songId}`);
+    try {
+      // 心动模式 API，以当前歌曲为种子
+      const result = await callNetease('playmode_intelligence_list', {
+        id: String(songId),
+        pid: '',           // 留空使用默认上下文
+        count: 5,
+      });
+      if (result?.data?.length) {
+        const songs = result.data.slice(0, 5).map(s => {
+          const si = s.songInfo || s;
+          return mapSong(si);
+        });
+        const best = songs.slice(0, 3);
+        const lines = best.map((s, i) =>
+          `[${i + 1}] songId="${s.id}" songName="${s.name}" artist="${s.artist}"`
+        );
+        const pl = JSON.stringify(best.map(s => ({ songId: s.id, name: s.name, artist: s.artist, cover: s.cover || '' })));
+        markAsPlayed(String(songId));
+        return `为你找到 ${songs.length} 首风格相似的歌:\n${lines.join('\n')}\n\n请调用 play_music(songId="${best[0].id}", songName="${best[0].name}", artist="${best[0].artist}")\nMUSIC_LIST ${pl}`;
+      }
+      return '暂时没有找到相似的歌曲，试试 recommend_music 吧。';
+    } catch (e) {
+      log.warn(`play_similar 失败: ${e.message}`);
+      return '心动模式暂不可用，试试 recommend_music 获取推荐。';
+    }
+  },
+};
+
 // 此文件被 index.js 导入时调用，传入 memory store
-export const musicTools = [searchMusic, recommendMusic, playMusic];
+export const musicTools = [searchMusic, recommendMusic, playMusic, playSimilar];

@@ -85,7 +85,7 @@ async function* _streamClaude(messages, options, abortSignal) {
 
   const streamOptions = {
     model: options.model || 'claude-sonnet-4-20250506',
-    max_tokens: options.maxTokens || 4096,
+    max_tokens: options.maxTokens || 8192,
     temperature: options.temperature ?? 0.7,
     messages: chatMessages,
     stream: true,
@@ -173,7 +173,7 @@ async function* _streamOpenAI(messages, options, abortSignal) {
 
   const streamOptions = {
     model: options.model || 'gpt-4o',
-    max_tokens: options.maxTokens || 4096,
+    max_tokens: options.maxTokens || 8192,
     temperature: options.temperature ?? 0.7,
     messages: chatMessages,
     stream: true,
@@ -201,7 +201,11 @@ async function* _streamOpenAI(messages, options, abortSignal) {
       yield { usage: chunk.usage };
     }
 
-    const delta = chunk.choices?.[0]?.delta;
+    const choice = chunk.choices?.[0];
+    if (choice?.finish_reason && choice.finish_reason !== 'stop') {
+      console.log('[llm] finish_reason:', choice.finish_reason);
+    }
+    const delta = choice?.delta;
     if (!delta) continue;
 
     // Text content
@@ -252,7 +256,7 @@ export function createLLM(config = {}) {
   const baseUrl = config.baseUrl || '';
   const model = config.model || '';
   const temperature = config.temperature ?? 0.7;
-  const maxTokens = config.maxTokens || 4096;
+  const maxTokens = config.maxTokens || 8192;
   const reasoningEffort = config.reasoningEffort || '';
 
   const providerConfig = {

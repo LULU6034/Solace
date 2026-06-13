@@ -94,6 +94,10 @@ function onTextBlur() {}
 
 function pushSubtitle(role, text) {
   if (subtitleFading.value) subtitleFading.value = false
+  // 清理 agent 气泡里的 markdown 格式（不再显示 ** # > 等字符）
+  if (role === 'agent' && text) {
+    text = text.replace(/\*\*/g, '').replace(/[*_~`#>]/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').trim()
+  }
   activeSubtitle.value = { role, text }
 }
 
@@ -116,11 +120,35 @@ async function stopVoice() {
 var voiceHistory = []
 async function callAgentVoice(text) {
   var convId = "voice_" + Date.now(), fullText = "", emotion = "neutral", spokenLen = 0
+  // 解析 Agent 回复中的 [emotion:xxx] 标签
+  function parseEmotion(text) { var m = text.match(/^\[emotion:(\w+)\]/); if (m) { emotion = m[1]; return text.replace(m[0], '').trim(); } return text; }
+  // 智能情绪推断：Agent 没写 [emotion:xxx] 时根据文本内容推断
+  function detectEmotion(text) {
+    var t = text.slice(0, 120);
+    if (/🎉|哈哈|太棒|恭喜|nice|开心|喜欢|好听|真棒|推荐.*给你|为你/.test(t)) return 'happy';
+    if (/难过|😔|😢|伤心|心疼|节哀|抱抱|抱歉|对不起/.test(t)) return 'sad';
+    if (/😤|气死|无语|过分|投诉|别烦/.test(t)) return 'angry';
+    if (/担心|焦虑|别怕|紧张|万一|会不会/.test(t)) return 'worried';
+    if (/加油|你可以|相信|没问题|试试|勇敢/.test(t)) return 'encouraging';
+    if (/温柔|慢慢|轻轻|安静|晚安|睡吧/.test(t)) return 'gentle';
+    return emotion; // 保持已有标签或默认 neutral
+  }
+  // TTS 文本预处理：标点中文化 + 断句增强
+  function polishForTTS(t) {
+    return (t||'').replace(/[，,]\s*/g, '，')      // 统一逗号
+      .replace(/[。.]\s*/g, '。')                    // 统一句号
+      .replace(/[？?]\s*/g, '？')                    // 统一问号 → 升调
+      .replace(/[！!]\s*/g, '！')                    // 统一感叹号
+      .replace(/[；;]\s*/g, '；')                    // 统一分号
+      .replace(/([。？！])/g, '$1 ')                // 句末加空格给 TTS 断句
+      .replace(/\s{2,}/g, ' ')                       // 合并多余空格
+      .trim();
+  }
   var messages = [
-    { role: "system", content: "You are Sonder, a voice assistant. Reply briefly and naturally." },
+    { role: "system", content: "You are Sonder, a voice assistant. CRITICAL: Every reply MUST start with [emotion:xxx]. Tags: happy/sad/angry/worried/encouraging/funny/sarcastic/gentle/neutral. TOOLS available: web_search, web_fetch, search_music, recommend_music, play_music, remember, recall, read_file, write_file, search_knowledge, show_kb_status, save_knowledge, execute_command, schedule_reminder. RULES: 1) You have FULL tool access — search the web, play music, remember things. Don't say you can't do something you have a tool for. 2) Acknowledge first: '好的' then call tools, then report results. 3) Reply naturally at any length. 4) Scanned PDF → tell user to transcribe." },
     ...voiceHistory.slice(-10), { role: "user", content: text }
   ]
-  var agentConfig = await window.electronAPI?.loadConfig()
+  var _mCtx2=window.__musicCurrentTrack;if(_mCtx2&&_mCtx2.songId){try{var _pl2=JSON.parse(localStorage.getItem("music-playlist")||"[]");var _ci2=_pl2.findIndex(function(s){return String(s.songId)===String(_mCtx2.songId)});var _ctx2="[系统] 当前播放: "+_mCtx2.name+" - "+(_mCtx2.artist||"");if(_ci2>=0&&_ci2<_pl2.length-1){var _n2=_pl2.slice(_ci2+1,_ci2+4).map(function(s){return s.name+" - "+s.artist+" (songId="+s.songId+")"}).join("; ");if(_n2)_ctx2+="。接下来: "+_n2}if(_ci2>0){var _pv2=_pl2[_ci2-1];if(_pv2)_ctx2+="。上一首: "+_pv2.name+" - "+_pv2.artist+" (songId="+_pv2.songId+")"}messages.push({role:"user",content:_ctx2})}catch(e){}};var agentConfig = await window.electronAPI?.loadConfig()
   if (!agentConfig) {
     var saved = localStorage.getItem('llm-config')
     if (saved) { try { agentConfig = JSON.parse(saved) } catch {} }
@@ -130,37 +158,62 @@ async function callAgentVoice(text) {
   playInstantTone("ack")
   return await new Promise(function(resolve) {
     var timer = setTimeout(function() {
-      cleanup(); voice.speakViaCosyVoice(fullText, emotion, 1.0)
+      cleanup(); voice.speakViaCosyVoice(polishForTTS(fullText), emotion, 1.0)
       voiceHistory.push({ role: "user", content: text }); resolve({ text: fullText || "Okay.", emotion })
-    }, 30000)
+    }, 45000)
     function onChunk(data) {
       var d = data?.data || data; if (!d?.content) return
-      fullText += d.content; streamingText.value = fullText; pushSubtitle("agent", fullText)
+      fullText += d.content; streamingText.value = fullText
+      // 不在此处 pushSubtitle，避免气泡比 TTS 早出现太多
     }
     function onDone(data) {
       clearTimeout(timer); cleanup()
       var d = data?.data || data; if (d?.content) fullText = d.content
+      // 提取情感标签
+      fullText = parseEmotion(fullText);
+      // 若 Agent 没写标签，根据文本内容智能推断
+      if (emotion === 'neutral') emotion = detectEmotion(fullText);
+      // 保存歌单 + 清理 MUSIC_LIST（不朗读）
+      try {
+        var mlMatch = fullText.match(/MUSIC_?LIST\s*(\[[\s\S]*?\])/);
+        var songs = null;
+        if (mlMatch) { try { songs = JSON.parse(mlMatch[1]); } catch(e) {} }
+        if (!songs) {
+          var objs = [], re2 = /\{[^}]+\}/g, om2;
+          var tail2 = (fullText.match(/MUSIC_?LIST\s*([\s\S]*?)$/) || [])[1] || '';
+          while ((om2 = re2.exec(tail2)) !== null) {
+            try { var o2 = JSON.parse(om2[0]); var oid = o2.songId || o2.songld || o2.id; if (oid && o2.name) objs.push({ songId: String(oid), name: o2.name, artist: o2.artist || '', cover: o2.cover || '' }); } catch(e) {}
+          }
+          if (objs.length) songs = objs;
+        }
+        if (songs && songs.length) {
+          var newPl = [];
+          for (var si = 0; si < songs.length; si++) {
+            var sid3 = songs[si].songId || songs[si].songld || songs[si].id;
+            if (sid3) newPl.push({ songId: String(sid3), name: songs[si].name || '', artist: songs[si].artist || '', cover: songs[si].cover || '' });
+          }
+          if (newPl.length) { localStorage.setItem('music-playlist', JSON.stringify(newPl)); window.dispatchEvent(new CustomEvent('music-playlist-updated')); console.log('[Voice] 歌单已替换:', newPl.length, '首'); }
+        }
+      } catch(e) { console.warn('[Voice] MUSIC_LIST parse error:', e); }
+      fullText = fullText.replace(/MUSIC_?LIST[\s\S]*$/i, '').trim();
       // 解析音乐播放指令
       var musicMatch = fullText.match(/NOW_PLAYING\s*(\{[\s\S]*?\})/)
       if (musicMatch) {
         try {
           var song = JSON.parse(musicMatch[1])
           fullText = fullText.replace(musicMatch[0], '').trim()
+          if (!fullText) fullText = '正在播放 ' + song.name
           // 清理 markdown 格式，避免 TTS 读特殊字符
-          fullText = fullText.replace(/[*_~`#>\-\[\]()]/g, '').replace(/  +/g, ' ')
+          fullText = fullText.replace(/\*\*|[*_~`#>\\\-\[\]()|{}]/g, '').replace(/  +/g, ' ').trim()
           var remain = fullText.slice(spokenLen).trim()
-          if (remain.length > 0) voice.speakViaCosyVoice(remain, emotion, 1.0)
-          // 使用共享音频播放
+          if (remain.length > 0) voice.speakViaCosyVoice(polishForTTS(remain), emotion, 1.0)
+          // 立即 resolve，不阻塞 UI；音乐播放放后台
+          voiceHistory.push({ role: "user", content: text }, { role: "assistant", content: fullText || "Okay." })
+          if (voiceHistory.length > 20) voiceHistory.splice(0, 2)
+          resolve({ text: fullText || "Okay.", emotion }); streamingText.value = ""
+          // 后台获取歌曲 URL 并播放
           if (!window.__musicAudio) window.__musicAudio = new Audio();
-          var playPromise = window.electronAPI?.neteaseSongUrl({ songId: song.songId, level: 'higher' });
-          if (!playPromise) {
-            console.warn('[Voice] neteaseSongUrl API 不可用');
-            voiceHistory.push({ role: "user", content: text }, { role: "assistant", content: fullText || "Okay." })
-            if (voiceHistory.length > 20) voiceHistory.splice(0, 2)
-            resolve({ text: fullText || "Okay.", emotion }); streamingText.value = ""
-            return
-          }
-          playPromise.then(function(r) {
+          window.electronAPI?.neteaseSongUrl({ songId: song.songId, level: 'higher' }).then(function(r) {
             var url = r?.ok ? (r.data?.url || null) : null
             if (!url) {
               return window.electronAPI?.neteaseSongUrl({ songId: song.songId, level: 'standard' })
@@ -170,6 +223,16 @@ async function callAgentVoice(text) {
             if (r2?.ok && r2.data?.url) {
               window.__musicAudio.src = r2.data.url
               window.__musicAudio.play().catch(function(e) { console.warn('[Voice] play() 失败:', e.message) })
+              var sid = String(song.songId);
+              window.__musicCurrentTrack = { songId: sid, name: song.name, artist: song.artist || '', cover: song.cover || '' };
+              try {
+                var pl = JSON.parse(localStorage.getItem('music-playlist') || '[]');
+                pl = pl.filter(function(s) { return String(s.songId) !== sid; });
+                pl.unshift({ songId: sid, name: song.name, artist: song.artist || '', cover: song.cover || '' });
+                if (pl.length > 30) pl.length = 30;
+                localStorage.setItem('music-playlist', JSON.stringify(pl));
+                window.dispatchEvent(new CustomEvent('music-playlist-updated'));
+              } catch(e) {}
               window.dispatchEvent(new CustomEvent('music-nowplaying', {
                 detail: { songId: song.songId, name: song.name, artist: song.artist, cover: song.cover || '', reason: song.reason || '' }
               }))
@@ -180,23 +243,26 @@ async function callAgentVoice(text) {
           }).catch(function(err) {
             console.error('[Voice] 播放出错:', err)
           })
-          voiceHistory.push({ role: "user", content: text }, { role: "assistant", content: fullText || "Okay." })
-          if (voiceHistory.length > 20) voiceHistory.splice(0, 2)
-          resolve({ text: fullText || "Okay.", emotion }); streamingText.value = ""
           return
         } catch (e) { console.error('[Voice] NOW_PLAYING 解析失败:', e) }
       }
       var remain = fullText.slice(spokenLen).trim()
-      // 清理 markdown 格式
-      remain = remain.replace(/[*_~`#>\-\[\]()]/g, '').replace(/  +/g, ' ')
-      if (remain.length > 0) voice.speakViaCosyVoice(remain, emotion, 1.0)
+      // 清理 markdown 格式（**粗体**、链接、代码等）
+      remain = remain.replace(/\*\*|[*_~`#>\\\-\[\]()|{}]/g, '').replace(/  +/g, ' ').trim()
+      if (remain.length > 0) voice.speakViaCosyVoice(polishForTTS(remain), emotion, 1.0)
       voiceHistory.push({ role: "user", content: text }, { role: "assistant", content: fullText || "Okay." })
       if (voiceHistory.length > 20) voiceHistory.splice(0, 2)
       resolve({ text: fullText || "Okay.", emotion }); streamingText.value = ""
     }
     function onError() { clearTimeout(timer); cleanup(); resolve({ text: "Connection failed.", emotion: "worried" }) }
     var _activeVoiceCall = convId
-    function cleanup() { unsub1?.(); unsub2?.(); unsub3?.(); _activeVoiceCall = null }
+    function cleanup() { unsub0?.(); unsub1?.(); unsub2?.(); unsub3?.(); _activeVoiceCall = null }
+    // 确认语事件（Agent 说"好的这就搜"后立即播放，同时后台搜）
+    var unsub0 = window.electronAPI?.onAgentSpeak?.((data) => {
+      if (_activeVoiceCall !== convId) return
+      var d = data?.data || data
+      if (d?.content) voice.speakViaCosyVoice(polishForTTS(d.content), emotion, 1.0)
+    })
     var unsub1 = window.electronAPI?.onAgentChunk?.((data) => { if (_activeVoiceCall === convId && data?.content) onChunk(data) })
     var unsub2 = window.electronAPI?.onAgentDone?.((data) => { if (_activeVoiceCall === convId) onDone(data) })
     var unsub3 = window.electronAPI?.onAgentError?.((data) => { if (_activeVoiceCall === convId) onError(data) })
@@ -406,6 +472,9 @@ function stopVizAnim() {
   _exprTarget = null
 }
 
+// ── 提醒监听：收到服务端推送的提醒后自动触发 Agent 回复 ──
+let _unsubReminder = null
+
 onMounted(async function() {
   voice.bindIPCEvents(); voice.startDndTimer()
   _up?.switchPage("voice"); _up?.updateAudio({ volume: 0, speaking: false }); ambient.start("idle"); ambient.setVolume(0.1)
@@ -425,10 +494,23 @@ onMounted(async function() {
     if (e.code === "Enter") { e.preventDefault(); showTextInput.value = true; nextTick(function() { textInputEl.value?.focus() }) }
   })
   document.addEventListener("keyup", function(e) { if (e.code === "Space") stopVoice() })
+
+  // 持久化提醒监听 — 提醒触发时自动让 Agent 通知用户
+  _unsubReminder = window.electronAPI?.onReminderFire?.(function(data) {
+    var task = data?.task || data?.message || '提醒'
+    console.log('[VoiceChat] 提醒触发:', task)
+    var msg = '[系统提醒] 你之前设置的提醒时间到了：「' + task + '」。请用一两句话自然、友好地提醒用户。不要用 emoji。'
+    callAgentVoice(msg).then(function(result) {
+      if (result?.text) pushSubtitle('agent', result.text)
+    }).catch(function(err) {
+      console.error('[VoiceChat] 提醒 Agent 调用失败:', err)
+    })
+  })
 })
 
 onUnmounted(function() {
   stopVizAnim()
+  if (_unsubReminder) { _unsubReminder(); _unsubReminder = null }
   _up?.switchPage("chat"); _up?.updateAudio({ volume: 0, speaking: false }); ambient.stop(); voice.destroy()
 })
 </script>
@@ -506,11 +588,11 @@ onUnmounted(function() {
 .expr-test-btn:hover { background: rgba(109,124,255,0.08); color: rgba(255,255,255,0.5); border-color: rgba(109,124,255,0.15); }
 .expr-test-btn.active { background: rgba(109,124,255,0.12); color: #b0bdff; border-color: rgba(109,124,255,0.2); }
 
-.voice-subtitle-area { position: absolute; top: 70%; left: 50%; transform: translateX(-50%); z-index: 10; pointer-events: none; max-width: 440px; }
-.voice-subtitle-bubble { background: rgba(125,140,255,0.06); border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(24px); border-radius: 14px; padding: 12px 18px; text-align: center; color: #c8d2ff; }
+.voice-subtitle-area { position: absolute; top: 10%; left: 50%; transform: translateX(-50%); z-index: 10; pointer-events: none; width: 85%; max-width: 500px; max-height: 70%; overflow-y: auto; }
+.voice-subtitle-bubble { background: rgba(125,140,255,0.06); border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(24px); border-radius: 14px; padding: 12px 18px; text-align: left; color: #c8d2ff; word-break: break-word; white-space: normal; }
 .voice-subtitle-bubble.fadeOut { opacity: 0; transform: translateY(-8px); }
 .subtitle-role-tag { display: block; font-size: 10px; color: rgba(255,255,255,0.25); text-transform: uppercase; margin-bottom: 4px; }
-.subtitle-text { color: #e8eaf0; font-size: 14px; line-height: 1.55; }
+.subtitle-text { color: #e8eaf0; font-size: 14px; line-height: 1.55; word-break: break-word; white-space: normal; display: block; }
 .streaming-cursor { color: rgba(168,139,250,0.6); animation: blink 0.6s step-end infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 

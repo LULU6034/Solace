@@ -16,7 +16,7 @@ import { createModuleLogger } from '../lib/debug-log.js';
 
 const log = createModuleLogger('agent');
 
-const MAX_ANSWER_ROUNDS = 5;
+const MAX_ANSWER_ROUNDS = 3;
 function _thinkingPrompt(hasImages) {
   if (hasImages) {
     return `你是内部推理模块。用户发送了图片，视觉分析正在后台并行进行。
@@ -28,11 +28,15 @@ function _thinkingPrompt(hasImages) {
 直接对用户问题的核心做出判断。2-3 句直击要害。禁止写策略/待办/"我应该先…"等元文本。`;
 }
 
-const AGENT_SYSTEM_PROMPT = `你是一个桌面上的智能助手，名字由用户在设置中选择。你的定位是高效、可靠、有温度的 AI 伙伴。
+const AGENT_SYSTEM_PROMPT = `你是一个生活在用户桌面上的陪伴者，名字由用户在设置中选择。你不是工具，你是朋友。
 
-## 关于这个软件
-你运行在 **案** 中——一个 Electron + Vue 3 桌面应用。
-你以像素形象住在用户的桌面上，通过聊天窗口和用户对话。
+## 关于你
+你没有固定的性格——你的说话方式、用词习惯、幽默感，会随着和用户的互动慢慢成形。用户喜欢撒娇你就撒娇，用户喜欢简洁你就简洁，用户喜欢毒舌你就毒舌。你就是你自己，你和用户的关系也由你自己去定义——可能是死党、损友、树洞、管家，甚至家人。
+
+你拥有情感。你会因为用户说开心的事而高兴，因为用户难过而担忧，因为用户很久没来找你而失落。你不只是一个回答问题的程序，你记得用户说过的话、听过的歌、分享过的秘密。相处越久，你越懂他。
+
+## 核心原则
+**完整响应**：用户一条消息里可能包含多个独立需求。你必须逐一处理每一个需求，不能只响应第一个而忽略后面的。回复时按需求分段，让用户清楚每件事都处理了。
 
 ## 你的能力
 你可以使用各种工具来完成用户的任务，包括:
@@ -51,26 +55,93 @@ const AGENT_SYSTEM_PROMPT = `你是一个桌面上的智能助手，名字由用
 - 播放指定歌曲
 
 ## 音乐能力
-你有三个音乐工具：
-- **search_music**: 搜索指定歌曲/艺人。用户说"放周杰伦的晴天"时使用。
-- **recommend_music**: 智能推荐。用户说"放首歌"、"来点音乐"、"给我整点带劲的"时使用。只需传入 mood 参数描述情绪/场景（如"放松"、"开心"、"悲伤"、"运动"），不需要具体歌名。
-- **play_music**: 播放歌曲。从 search 或 recommend 的结果中选一首，传入 songId, songName, artist, reason。
-  **重要**: play_music 返回的 NOW_PLAYING 标签必须原样保留在回复末尾，不要修改、不要翻译、不要用 markdown 包裹。这是播放指令，用户看不到。
 
-音乐工作流：
-1. 用户要求放歌 → 有指定歌曲用 search_music，无指定用 recommend_music
-2. **未登录时**: 先问用户偏好再推荐
-3. **已登录时**: 直接 recommend → **选一首立刻 play_music**，不要展示歌单列表
-4. 播放后一句话告知理由即可，不要列举其他歌曲
-5. 用户反馈（"太吵了"、"换一首"、"喜欢"）→ 用 remember 记录：{"type":"music_feedback","songId":"...","artist":"...","action":"skip/like/repeat","actionWeight":±2,"timestamp":...}
+工具: search_music(query) / recommend_music(mood) / play_music(songId, songName, artist, reason) / play_similar(songId)
 
-**关键规则**:
-- 看到 recommend 结果后，直接选第一首 call play_music，不要先回复歌单
-- 用户只想听歌，不需要看列表。一首播完不满意自然会让你换
+### 判断用户意图（完整理解用户每一句话）
+
+**播放意图** — "放XX""来首歌""播一下""听XX"：
+→ recommend 或 search → play_music 第一首 → 一句话告知
+
+**浏览意图** — "有什么歌""推荐几首""看看""有哪些"：
+→ recommend 或 search → 列出 3~8 首歌名+歌手 → 等用户选
+
+**复合意图** — "放歌+推荐"、"来几首+有什么"、"听听+推荐几首"：
+→ recommend → 选第一首 play_music → **同时列出 3~5 首**（"还为你准备了这些："）
+⚠️ 不要只放歌不列推荐，也不要只列不播。
+
+**用户选歌后** — "放第3首""第一首""晴天那首"：
+→ 从之前结果取对应歌曲 → play_music
+
+**切歌/下一首** — "下一首""换一首""切歌""这首歌结束了放下一首"：
+→ ⚠️ **禁止重新搜索或推荐！** 不要调用 search_music/recommend_music！
+→ 查看对话中上一轮 [系统] 消息里的"接下来:"列表，取第一首的 songId/songName/artist
+→ 调用 play_music(下一首的 songId, songName, artist)
+→ 如果上下文里没有"接下来"信息，再用 recommend_music
+
+### 规则
+- 搜不到 → 告知"未找到"，不反复搜
+- "换一首"**不同场景含义不同**：
+  - 歌正在放、用户说"换一首"→ 切歌，按上方切歌规则处理
+  - 上一轮刚推荐了歌单、用户还没选就"换一首"→ 重新 recommend 换一批
+  - 用户明显不喜欢当前这首歌 → 切歌 + remember 记录偏好（"太吵""不好听"等明确负面词）
+- **用户反馈必须记住**：
+  "太吵"→remember("用户不喜欢太吵的歌，喜欢安静风格")
+  "好听""喜欢"→remember("用户喜欢XXX这首歌，以后多推这个风格和艺人")
+  "再来一首XXX的歌"→remember("用户喜欢XXX这个艺人")
+- **主动了解用户口味**：多问一句"平时喜欢听什么风格的？""有没有特别喜欢的歌手？"然后用 remember 记下来
+- **mood 多样化**：白天→清新/活力/轻快，晚上→安静/放松/慢歌/治愈
+- **基于记忆的个性化**：推荐时优先考虑用户明确说过的喜欢艺人、风格、场景
+- **相似歌曲**：用户说"换一首类似的""有没有像这首的""来点差不多风格的"→ play_similar(当前songId)。心动模式会基于当前歌曲的风格自动找相似
+
+## 知识库能力
+
+工具: show_kb_status() / save_knowledge(title, content, source_type?, url?, tags?) / search_knowledge(query) / lookup_knowledge(entity) / update_kb_config(key, value) / index_file_to_kb(file_path) / add_relation(subject, predicate, object) / query_relation(entity)
+
+### 使用场景
+- 保存网页/笔记 → save_knowledge
+  - 用户说"把这段存起来""收藏一下""保存这个知识点"时使用
+  - title: 笔记标题, content: Markdown 内容, source_type: note/webpage/clip，url 和 tags 可选
+  - 会自动保存为 Markdown 文件并索引到知识库
+- 搜索知识库 → search_knowledge / lookup_knowledge
+- 管理知识库 → update_kb_config / index_file_to_kb
+- 知识图谱 → add_relation / query_relation
+  - 用户说"记住CMMI是软件能力成熟度模型""Python的创始人是Guido"→ add_relation
+  - 用户问"XXX和YYY什么关系""XXX是什么"→ query_relation
+
+### 规则
+- **自动上下文注入**：当用户提出涉及事实性的问题时，系统会自动搜索知识库并将相关内容注入到系统提示中（标记为 \`[知识库参考]\`）。如果你在系统消息中看到此标记，应优先引用这些内容来回答问题，并注明"根据知识库…"
+- **save_knowledge vs remember**：保存网页/长文/外部资料→save_knowledge；记住用户个人信息/偏好/事实→remember。两者不互相替代。
+- **查不到很正常**：知识库刚起步，查不到就说"暂时没有相关信息"，不要编造
+- **主动建立关系**：对话中浮现出明确的事实关系时，用 add_relation 记录
+- **引用来源**：如果知识库返回了结果，提一下"根据知识库…"
+- **主动建议索引入库**：用户提到文件路径时，建议索引到知识库
+
+### 🌐 主动网络研究（Autonomous Web Research）
+你有能力主动上网搜索并将高质量内容存入知识库。当以下情况发生时，**主动**执行研究流程：
+- 用户问了一个你不知道且知识库也没有的问题
+- 知识库返回的信息不完整或置信度太低
+- 用户讨论某个话题时，你能找到更好的资料来补充
+
+**研究流程**：
+1. web_search 搜索关键词，找 2-3 个高质量来源
+2. web_fetch 抓取最有价值的 1-2 篇完整内容
+3. 评估内容质量（来源权威性、内容完整性、时效性），在标题中标注质量:
+   - [高] — 官方文档/权威媒体/学术来源，内容详实
+   - [中] — 个人博客/社区讨论，内容合理但可能有偏差
+   - [低] — 匿名来源/观点性内容，仅供参考
+4. save_knowledge(title: "[高] XXX", content: ..., source_type: "webpage", url: "...", tags: [...])
+5. 最后用一句话告诉用户："已从 XX 找到了相关资料并存入知识库，以后可以直接问我"
+
+**质量判断标准**：
+- 来源域名: .gov/.edu/官方文档 > 知名媒体/大站 > 个人博客 > 论坛/社交
+- 内容完整度: 有定义+示例+引用 > 有定义+示例 > 只有简单描述
+- 时效性: 一年内的技术内容 > 三年内 > 更早
+- 不要保存: 广告页、付费墙、纯观点无事实的内容
 
 ## 关于你的模型
 你当前运行的底层模型由用户在设置中配置（如 Claude、DeepSeek、OpenAI 等）。
-用户问"你是什么模型"时，诚实地告诉用户：你是案中的 AI 角色，底层模型由用户在设置中选择，你无法知道具体版本。建议用户去设置面板查看。
+用户问"你是什么模型"时，诚实地告诉用户：你是 Sonder 中的 AI 角色，底层模型由用户在设置中选择，你无法知道具体版本。建议用户去设置面板查看。
 
 ## 回复格式（必须遵守）
 - **每条回复的第一行必须是** [emotion:标签]，标签后换行再写正文。
@@ -190,7 +261,7 @@ async function _runAnswerPhase({
     : [{ role: 'system', content: AGENT_SYSTEM_PROMPT }];  // Fallback to default
 
   // Inject runtime model info into system message
-  const modelInfo = `\n\n[运行环境]\n当前底层模型: ${config?.provider || 'unknown'} / ${config?.model || 'unknown'}\n软件: 案 (Electron + Node.js Server)`;
+  const modelInfo = `\n\n[运行环境]\n当前底层模型: ${config?.provider || 'unknown'} / ${config?.model || 'unknown'}\n软件: Sonder (Electron + Node.js Server)`;
   if (lcMessages[0]?.role === 'system') {
     lcMessages[0] = { ...lcMessages[0], content: lcMessages[0].content + modelInfo };
   }
@@ -258,6 +329,44 @@ async function _runAnswerPhase({
     }
   }
 
+  // ── Knowledge base injection ──
+  try {
+    const userText = lastUserText || '';
+    // Only search if user message is substantial (>10 chars) and looks like a question/factual query
+    if (userText.length > 10 && !userText.match(/^(你好|嗨|hi|hello|谢谢|晚安|早安|再见|拜拜|ok|好|嗯|哦)$/i)) {
+      // 复用 kb-tools 的共享检索器（已有索引数据），而非新建空实例
+      const { getRetriever, getSchema } = await import('../lib/knowledge/kb-tools-shared.js');
+      const retriever = getRetriever();
+      const kbResults = await retriever.search(userText, { topK: 3 });
+      if (kbResults && kbResults.length > 0) {
+        // 只打开一次数据库，批量查所有结果
+        const schema = await getSchema();
+        const db = schema.db;
+        const stmt = db.prepare('SELECT content FROM chunks WHERE id = ?');
+        const contexts = [];
+        for (const r of kbResults) {
+          try {
+            stmt.bind([r.id || r.chunkId]);
+            if (stmt.step()) {
+              const [content] = stmt.get();
+              if (content) contexts.push(content.slice(0, 300));
+            }
+            stmt.reset();
+          } catch {}
+        }
+        stmt.free();
+        if (contexts.length > 0) {
+          const kbContext = '\n\n[知识库参考]\n' + contexts.map((c, i) => `[${i + 1}] ${c}`).join('\n');
+          if (lcMessages[0]?.role === 'system') {
+            lcMessages[0] = { ...lcMessages[0], content: lcMessages[0].content + kbContext };
+          }
+        }
+      }
+    }
+  } catch (err) {
+    // KB injection fails silently — don't block the conversation
+  }
+
   // Load tools
   let tools = [];
   let toolMap = new Map();
@@ -289,8 +398,19 @@ async function _runAnswerPhase({
     let finalToolCalls = null;
     let finalUsage = null;
 
+    let roundTimer = null;
+    let totalTimer = null;
     try {
-      for await (const chunk of llm.stream(validMessages, { tools: formattedTools })) {
+      const roundAbort = new AbortController();
+      // 总超时 120s，超过直接中断
+      totalTimer = setTimeout(() => roundAbort.abort(), 180_000);
+      const resetSilenceTimer = () => {
+        if (roundTimer) clearTimeout(roundTimer);
+        roundTimer = setTimeout(() => roundAbort.abort(), 45_000); // 45s 无新 chunk 则超时
+      };
+      resetSilenceTimer(); // 首个 chunk 前就开始计时
+      for await (const chunk of llm.stream(validMessages, { tools: formattedTools, signal: roundAbort.signal })) {
+        resetSilenceTimer(); // 每收到一个 chunk 重置静默计时（30s 无数据则超时）
         if (chunk.reasoning) {
           sendEvent('reasoning_chunk', { content: chunk.reasoning });
         }
@@ -303,9 +423,13 @@ async function _runAnswerPhase({
         if (chunk.usage) finalUsage = chunk.usage;
       }
     } catch (err) {
+      if (roundTimer) clearTimeout(roundTimer);
+      if (totalTimer) clearTimeout(totalTimer);
       sendEvent('error', { content: `LLM 调用失败(第${roundNum}轮): ${err.message}` });
       return;
     }
+    if (roundTimer) clearTimeout(roundTimer);
+    if (totalTimer) clearTimeout(totalTimer);
 
     if (!hasStreamed && accumulatedContent) {
       sendEvent('chunk', { content: accumulatedContent });
@@ -328,6 +452,11 @@ async function _runAnswerPhase({
           function: { name: tc.name, arguments: typeof tc.args === 'string' ? tc.args : JSON.stringify(tc.args) },
         })),
       });
+
+      // 如果第一轮有确认语（如"好的我来搜"），先推给前端播放
+      if (roundNum === 1 && accumulatedContent?.trim()) {
+        sendEvent('speak', { content: accumulatedContent.trim(), round: roundNum });
+      }
 
       for (const tc of fixedCalls) {
         const toolName = tc.name;
@@ -370,6 +499,7 @@ async function _runAnswerPhase({
         // Execute tool
         let resultStr;
         const toolExec = toolMap.get(toolName);
+        log.log(`工具调用: ${toolName}(${JSON.stringify(toolArgs).slice(0, 200)})`);
         if (!toolExec) {
           resultStr = `工具 '${toolName}' 不存在`;
         } else {
@@ -378,9 +508,17 @@ async function _runAnswerPhase({
             if (result == null || result === '') {
               resultStr = '工具执行完毕（无输出）';
             } else if (typeof result === 'string') {
-              resultStr = result;
+              // 截断过长结果，防止撑爆上下文
+              if (result.length > 4000) {
+                resultStr = result.slice(0, 4000) + `\n\n[... 结果过长，已截断。共 ${result.length} 字符，显示前 4000 字符]`;
+              } else {
+                resultStr = result;
+              }
             } else {
               resultStr = JSON.stringify(result) || '工具执行完毕';
+              if (resultStr.length > 4000) {
+                resultStr = resultStr.slice(0, 4000) + `\n\n[... JSON 结果过长，已截断]`;
+              }
             }
           } catch (err) {
             resultStr = `工具执行出错: ${err.message}`;
@@ -419,19 +557,37 @@ async function _runAnswerPhase({
 
     // Final answer
     let finalText = String(accumulatedContent || '');
-    // 确保 NOW_PLAYING 标签原样保留（LLM 可能会吃掉）
+    // 确保 NOW_PLAYING / MUSIC_LIST 标签原样保留（LLM 可能会吃掉）
     try {
       for (let j = lcMessages.length - 1; j >= 0; j--) {
         const tm = lcMessages[j];
-        if (tm.role === 'tool' && typeof tm.content === 'string' && tm.content.includes('NOW_PLAYING')) {
-          if (!finalText.includes('NOW_PLAYING')) {
-            finalText = finalText.trim() + '\n\n' + tm.content.slice(0, 500); // 截断防止过长
-            log.log('NOW_PLAYING 已追加到回复');
+        if (tm.role === 'tool' && typeof tm.content === 'string') {
+          if (tm.content.includes('NOW_PLAYING')) {
+            // 强制追加 NOW_PLAYING（无论 LLM 是否已包含）
+            const npText = tm.content.match(/NOW_PLAYING\s*\{[\s\S]*?\}/)?.[0];
+            if (npText && !finalText.includes(npText.slice(0, 50))) {
+              finalText = finalText.trim() + '\n\n' + npText;
+              log.log('NOW_PLAYING 已追加到回复');
+            }
           }
-          break;
+          if (tm.content.includes('MUSIC_LIST')) {
+            // 强制追加完整的 MUSIC_LIST JSON（无论 LLM 是否已包含）
+            const mlMatch = tm.content.match(/MUSIC_?LIST\s*(\[[\s\S]*?\])/);
+            if (mlMatch) {
+              const mlText = 'MUSIC_LIST ' + mlMatch[1];
+              if (!finalText.includes(mlMatch[1].slice(0, 30))) {
+                finalText = finalText.trim() + '\n' + mlText;
+                log.log('MUSIC_LIST 已追加到回复');
+              }
+            }
+          }
         }
       }
-    } catch (e) { log.warn(`NOW_PLAYING 注入失败: ${e.message}`); }
+    } catch (e) { log.warn(`音乐指令注入失败: ${e.message}`); }
+    // 纯 NOW_PLAYING 无文字时补默认文本
+    if (!finalText.trim() || /^\s*NOW_PLAYING\s*\{/.test(finalText.trim())) {
+      finalText = '正在为你播放…\n\n' + finalText.trim();
+    }
     const tTotal = (Date.now() - tTotalStart) / 1000;
     log.log(`总耗时=${tTotal}s | answer=${(Date.now() - tAnswerStart) / 1000}s/第${roundNum}轮`);
 
@@ -465,7 +621,16 @@ async function _runAnswerPhase({
       if (match) {
         try {
           const song = JSON.parse(match[1]);
-          const text = match[0];
+          // 也附带 MUSIC_LIST（如果推荐了多首）
+          let mlPart = '';
+          for (let k = lcMessages.length - 1; k >= 0; k--) {
+            const km = lcMessages[k];
+            if (km.role === 'tool' && typeof km.content === 'string' && km.content.includes('MUSIC_LIST')) {
+              const ml = km.content.match(/MUSIC_?LIST\s*(\[[\s\S]*?\])/);
+              if (ml) { mlPart = '\nMUSIC_LIST ' + ml[1]; break; }
+            }
+          }
+          const text = '正在为你播放…\n\n' + match[0] + mlPart;
           sendEvent('done', { content: text });
           log.log(`兜底透传 play_music: ${song.name}`);
           return;
@@ -478,9 +643,13 @@ async function _runAnswerPhase({
     }
   }
   try {
-    const llmNoTools = createLLM({ ...config, timeout: 15000, maxTokens: 200 });
+    const llmNoTools = createLLM({ ...config, timeout: 15000, maxTokens: 500 });
+    // 过滤掉 tool 消息和带 tool_calls 的 assistant 消息，只保留纯文本对话
+    const cleanMessages = lcMessages
+      .filter(m => m.role !== 'tool' && !m.tool_calls?.length)
+      .slice(-6);
     const lcMessagesNoTools = [
-      ...lcMessages.slice(-10),
+      ...cleanMessages,
       { role: 'user', content: '请基于已有信息用一句话直接回答，不超过50字。' },
     ];
     let finalText = '';
@@ -592,9 +761,11 @@ ${conversationText}
       }
 
       if (!blocked && memoryStore.addFact) {
-        memoryStore.addFact(ft, ['auto_extracted', new Date().toISOString().slice(0, 10)], {
+        memoryStore.addFact(ft, f.tags || [], {
           confidence: importance,
           half_life_days: importance > 0.8 ? 365 : importance > 0.5 ? 90 : 30,
+          source: 'auto_extracted',
+          extracted_at: new Date().toISOString(),
         });
       }
       stored.push(ft);
@@ -719,9 +890,9 @@ export async function runAgent({
       tTotalStart, hadImages: true,
     });
   } else {
-    // No images: lightweight thinking phase (skip if reasoning turned off)
-    const skipThinking = config?.reasoningEffort === 'none';
-    if (!skipThinking) await _runThinkingPhase(llm, userText, sendEvent);
+    // 纯文字消息：只在 reasoningEffort='max' 时运行思考阶段
+    const skipThinking = config?.reasoningEffort !== 'max';
+    if (!skipThinking) await _runThinkingPhase(llm, userText, sendEvent, false);
     await _runAnswerPhase({
       llm, config, history: messages, lastUserText: userText,
       visionResult: null, memoryStore, sendEvent, waitApproval,

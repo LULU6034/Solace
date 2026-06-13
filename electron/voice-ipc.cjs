@@ -72,7 +72,7 @@ function getApiKeyFromConfig() {
       catch { return false; }
     });
     if (!python) { console.log('[voice-ipc] Python not found'); return; }
-    const script = path.join(__dirname, '..', 'python', 'cosyvoice-server.py');
+    const script = path.join(__dirname, '..', 'scripts', 'cosyvoice-server.py');
     if (!fs.existsSync(script)) { console.log('[voice-ipc] Server script not found:', script); return; }
 
     console.log('[voice-ipc] Starting TTS API server...');
@@ -97,15 +97,114 @@ function getApiKeyFromConfig() {
     console.log('[voice-ipc] TTS server start timeout');
   }
 
+  // ── MiniMax API Key 读取 ──
+  function getMiniMaxApiKey() {
+    try {
+      const { app, safeStorage } = require('electron');
+      const configPath = path.join(app.getPath('userData'), 'config.enc');
+      if (!fs.existsSync(configPath)) return '';
+      const raw = fs.readFileSync(configPath, 'utf-8');
+      let cfg;
+      if (safeStorage.isEncryptionAvailable()) {
+        cfg = JSON.parse(safeStorage.decryptString(Buffer.from(raw, 'base64')));
+      } else {
+        try { cfg = JSON.parse(Buffer.from(raw, 'base64').toString('utf-8')); } catch { cfg = JSON.parse(raw); }
+      }
+      return cfg.minimaxApiKey || '';
+    } catch { return ''; }
+  }
+
+  // ── Sonder → MiniMax 情绪映射 ──
+  // 文档确认 speech-2.8-turbo 支持 emotion 参数
+  // 配合 voice_modify 微调音色 + 语气词标签注入文本
+  // 情绪只影响语速，不改音色/pitch/emotion 参数
+  const EMOTION_PRESETS = {
+    happy:       { speedMul: 1.1  },
+    sad:         { speedMul: 0.88 },
+    angry:       { speedMul: 1.15 },
+    worried:     { speedMul: 0.92 },
+    encouraging: { speedMul: 1.05 },
+    funny:       { speedMul: 1.08 },
+    sarcastic:   { speedMul: 1.0  },
+    gentle:      { speedMul: 0.85 },
+    neutral:     { speedMul: 1.0  },
+  };
+
+  // ── MiniMax 音色 ──
+  const MINIMAX_VOICES = {
+    default_female: 'Chinese (Mandarin)_Gentleman',  // 中文绅士男声
+    default_male: 'male-qn-jingying',
+    gentle_female: 'female-yousheng',
+    young_male: 'male-qn-qingse',
+    cloned: 'sonder_v2',                  // 克隆音色 v2
+  };
+
   function registerVoiceIPC(configApiKey) {
     if (configApiKey) _configKey = configApiKey;
-    // 启动 Python TTS 服务
+    // 启动 Python TTS 服务（MiniMax 存在时作为降级方案）
     startPythonServer();
 
-    // ── TTS 合成 (调本地 Python 服务，Python 调 DashScope SDK) ──
+    // ── TTS 合成 ──
     ipcMain.handle('voice-tts-synthesize', async (event, { text, emotion, voiceId, speed }) => {
       const wc = event.sender;
       console.log('[voice-ipc] TTS:', text?.slice(0, 30));
+
+      // ═══ MiniMax 主路径 ═══
+      const mmKey = getMiniMaxApiKey();
+      if (mmKey) {
+        try {
+          const mmVoiceId = MINIMAX_VOICES[voiceId] || MINIMAX_VOICES.default_female;
+          const preset = EMOTION_PRESETS[emotion] || EMOTION_PRESETS.neutral;
+          const mmSpeed = Math.max(0.5, Math.min(2.0, (parseFloat(speed) || 1.0) * preset.speedMul));
+
+          console.log('[voice-ipc] MiniMax TTS:', mmVoiceId, 'speed:', mmSpeed);
+
+          const mmRes = await fetch('https://api.minimax.chat/v1/t2a_v2', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${mmKey}`,
+            },
+            body: JSON.stringify({
+              model: 'speech-2.8-turbo',
+              text,
+              stream: false,
+              voice_setting: {
+                voice_id: mmVoiceId,
+                speed: mmSpeed,
+                vol: 1.0,
+              },
+              audio_setting: {
+                sample_rate: 32000,
+                format: 'mp3',
+              },
+              language_boost: 'auto',
+            }),
+            signal: AbortSignal.timeout(30_000),
+          });
+
+          const mmJson = await mmRes.json();
+          if (mmJson.base_resp?.status_code !== 0) {
+            throw new Error(mmJson.base_resp?.status_msg || 'MiniMax API error');
+          }
+          const audioRaw = mmJson.data?.audio || mmJson.audio;
+          if (!audioRaw) throw new Error('MiniMax 返回空音频');
+
+          // MiniMax 返回 hex 编码的 mp3，转为 base64 兼容现有管线
+          const audioBuf = Buffer.from(audioRaw, 'hex');
+          const audioB64 = audioBuf.toString('base64');
+          console.log('[voice-ipc] MiniMax 音频:', audioBuf.length, 'bytes');
+
+          // 包装为与 CosyVoice 兼容的 ndjson chunk 格式
+          wc.send('cv-tts-chunk', { audio: audioB64 });
+          return { engine: 'minimax' };
+        } catch (err) {
+          console.error('[voice-ipc] MiniMax 失败，降级到 CosyVoice:', err.message);
+          // 降级到 CosyVoice
+        }
+      }
+
+      // ═══ CosyVoice 降级路径 ──
       try {
         const res = await fetch(`http://127.0.0.1:${pythonPort}/tts/generate`, {
           method: 'POST',
@@ -123,7 +222,16 @@ function getApiKeyFromConfig() {
         let buf = '';
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done) {
+            // 最后一次 decode 不用 stream 模式，确保 decoder 内部缓冲全部 flush
+            if (value) buf += decoder.decode(value);
+            // flush 残余缓冲区：最后一行可能没有 \n 结尾
+            if (buf.trim()) {
+              try { wc.send('cv-tts-chunk', JSON.parse(buf)) }
+              catch { /* 最后一个 chunk 解析失败，丢弃（极少情况） */ }
+            }
+            break;
+          }
           buf += decoder.decode(value, { stream: true });
           const lines = buf.split('\n');
           buf = lines.pop();

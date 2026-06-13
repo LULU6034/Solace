@@ -112,6 +112,15 @@ ipcMain.handle('feed-file', (_event, filePath) => {
 
 ipcMain.handle('read-file-content', async (_event, filePath) => {
   try {
+    const ext = path.extname(filePath).toLowerCase();
+    // 二进制格式：读为 base64，给 Agent 用 vision/PDF 工具查看
+    const binaryExts = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico']);
+    if (binaryExts.has(ext)) {
+      const buf = await fs.promises.readFile(filePath);
+      const base64 = buf.toString('base64');
+      return { success: true, content: '', binary: true, ext, base64, size: buf.length };
+    }
+    // 文本格式：UTF-8
     const content = await fs.promises.readFile(filePath, 'utf-8');
     return { success: true, content };
   } catch {
@@ -200,6 +209,8 @@ app.whenReady().then(() => {
 
 app.on('will-quit', () => {
   stopAgent();
+  // 强杀 Python TTS 服务
+  try { require('child_process').execSync('taskkill /f /im python.exe 2>nul', { timeout: 1000 }); } catch {}
 });
 
 app.on('window-all-closed', () => {});

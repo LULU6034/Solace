@@ -4,14 +4,14 @@
  * 主进程直接调用 NeteaseCloudMusicApi 函数。
  * 支持扫码登录，cookie 持久化到 config.enc。
  */
-const { ipcMain, safeStorage, app } = require('electron');
+const { ipcMain, safeStorage, app, BrowserWindow } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
 let _netease = null;
 function getApi() {
   if (!_netease) {
-    _netease = require('NeteaseCloudMusicApi');
+    _netease = require('@neteasecloudmusicapienhanced/api');
   }
   return _netease;
 }
@@ -81,12 +81,14 @@ function clearCookie() {
 }
 
 // ── API 调用包装 ──
+// 网易云对非标准 User-Agent 有反爬检测，使用移动端 UA 伪装正常设备
+// ── API 调用包装 ──
 async function callApi(fnName, params = {}) {
   try {
     const api = getApi();
-    // 所有 API 调用都带上 cookie
     const opts = { ...params };
-    if (_cookie) opts.cookie = _cookie;
+    // QR 登录不传旧 Cookie，避免过期 cookie 触发风控
+    if (_cookie && !fnName.startsWith('login_qr')) opts.cookie = _cookie;
     const result = await api[fnName](opts);
     return { ok: true, data: result.body };
   } catch (err) {
@@ -133,7 +135,7 @@ function registerNeteaseIPC() {
     return { ok: true, data: { loggedIn: true, user: _loginInfo } };
   });
 
-  // 生成扫码登录 key
+  // ── 扫码登录 ──
   ipcMain.handle('netease-qr-create', async () => {
     const r1 = await callApi('login_qr_key');
     if (!r1.ok) return r1;
@@ -142,30 +144,20 @@ function registerNeteaseIPC() {
 
     const r2 = await callApi('login_qr_create', { key, qrimg: true });
     if (!r2.ok) return r2;
-
-    return {
-      ok: true,
-      data: {
-        key,
-        qrUrl: r2.data.data?.qrurl || '',
-        qrImg: r2.data.data?.qrimg || '', // base64 QR image
-      },
-    };
+    return { ok: true, data: { key, qrImg: r2.data.data?.qrimg || '' } };
   });
 
-  // 轮询扫码状态
   ipcMain.handle('netease-qr-check', async (_e, { key }) => {
     const r = await callApi('login_qr_check', { key });
     if (!r.ok) return r;
-    // code: 800=过期, 801=等待扫码, 802=等待确认, 803=成功
     const code = r.data.code;
     if (code === 803 && r.data.cookie) {
       _cookie = r.data.cookie;
       saveCookie();
       return { ok: true, data: { code: 803, message: '登录成功' } };
     }
-    const messages = { 800: '二维码已过期', 801: '等待扫码', 802: '请在手机上确认登录', 803: '登录成功' };
-    return { ok: true, data: { code, message: messages[code] || `状态: ${code}` } };
+    const msgs = { 800: '二维码已过期', 801: '等待扫码', 802: '请在手机上确认登录', 803: '登录成功' };
+    return { ok: true, data: { code, message: msgs[code] || `状态: ${code}` } };
   });
 
   // 退出登录
@@ -338,6 +330,80 @@ function registerNeteaseIPC() {
         tracks,
       },
     };
+  });
+
+  // ── Cookie 直接登录 ──
+  ipcMain.handle('netease-cookie-login', async (_e, cookieStr) => {
+    if (!cookieStr || typeof cookieStr !== 'string') return { ok: false, error: 'Cookie 不能为空' };
+    // 如果只传了 MUSIC_U 值，补全为完整 cookie
+    const c = cookieStr.includes('=') ? cookieStr : `MUSIC_U=${cookieStr}`;
+    _cookie = c;
+    saveCookie();
+    try {
+      const r = await callApi('login_status');
+      if (r.ok && r.data.data?.account) {
+        _loginInfo = {
+          userId: String(r.data.data.account.id || ''),
+          nickname: r.data.data.profile?.nickname || '',
+          avatarUrl: r.data.data.profile?.avatarUrl || '',
+        };
+        return { ok: true, data: { nickname: _loginInfo.nickname, message: '登录成功' } };
+      }
+    } catch {}
+    _cookie = '';
+    return { ok: false, error: 'Cookie 无效或已过期' };
+  });
+
+  // ── 浏览器登录（永久解决方案，绕过 API 风控）──
+  ipcMain.handle('netease-browser-login', async () => {
+    const { session } = require('electron');
+    const ses = session.defaultSession;
+
+    return new Promise((resolve) => {
+      const win = new BrowserWindow({
+        width: 450, height: 700,
+        title: '网易云音乐登录',
+        autoHideMenuBar: true,
+      });
+
+      let pollTimer = null;
+      let resolved = false;
+
+      const done = (ok, data) => {
+        if (resolved) return;
+        resolved = true;
+        clearInterval(pollTimer);
+        if (!win.isDestroyed()) win.close();
+        resolve({ ok, data });
+      };
+
+      // 每 2 秒检查一次 Cookie
+      pollTimer = setInterval(async () => {
+        try {
+          if (win.isDestroyed()) { done(false, { error: '窗口已关闭' }); return; }
+          const cookies = await ses.cookies.get({ url: 'https://music.163.com' });
+          const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+          if (cookieStr.includes('MUSIC_U')) {
+            _cookie = cookieStr;
+            saveCookie();
+            try {
+              const r = await callApi('login_status');
+              if (r.ok && r.data.data?.account) {
+                _loginInfo = {
+                  userId: String(r.data.data.account.id || ''),
+                  nickname: r.data.data.profile?.nickname || '',
+                  avatarUrl: r.data.data.profile?.avatarUrl || '',
+                };
+              }
+            } catch {}
+            done(true, { message: '登录成功', nickname: _loginInfo?.nickname });
+          }
+        } catch {}
+      }, 2000);
+
+      win.on('closed', () => done(false, { error: '登录窗口已关闭' }));
+      win.loadURL('https://music.163.com');
+    });
   });
 
   console.log('[netease-ipc] Netease IPC 已注册 (登录: ' + (_cookie ? '已登录' : '未登录') + ')');

@@ -35,8 +35,14 @@ venv/
 # Agent data (local)
 agent-data/
 
+# Runtime data
+data/
+
+# Environment
+.env
+
 # AI models + source (large files)
-python/models/
-python/cosyvoice-src/
-python/checkpoints/
+scripts/models/
+scripts/cosyvoice-src/
+scripts/checkpoints/
 

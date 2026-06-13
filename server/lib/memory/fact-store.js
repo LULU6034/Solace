@@ -40,6 +40,37 @@ export class FactStore {
     fs.mkdirSync(this.persistDir, { recursive: true });
     const SQL = await _getSQL();
 
+    // 兼容旧版数据库: facts.db → facts_default.db
+    const legacyPath = path.join(this.persistDir, 'facts.db');
+    if (fs.existsSync(legacyPath) && legacyPath !== this.dbPath) {
+      const legacyBuf = fs.readFileSync(legacyPath);
+      const legacyDb = new SQL.Database(legacyBuf);
+      let legacyCount = 0;
+      try {
+        legacyCount = legacyDb.exec('SELECT COUNT(*) as n FROM facts WHERE deleted_at IS NULL')[0]?.values?.[0]?.[0] || 0;
+      } catch { /* 旧表可能没有 deleted_at 列 */ }
+      if (legacyCount === 0) {
+        try { legacyCount = legacyDb.exec('SELECT COUNT(*) as n FROM facts')[0]?.values?.[0]?.[0] || 0; } catch {}
+      }
+
+      // 检查新版数据库是否为空
+      let newCount = 0;
+      if (fs.existsSync(this.dbPath)) {
+        const newDb = new SQL.Database(fs.readFileSync(this.dbPath));
+        newCount = newDb.exec('SELECT COUNT(*) as n FROM facts WHERE deleted_at IS NULL')[0]?.values?.[0]?.[0] || 0;
+        newDb.close();
+      }
+
+      if (legacyCount > 0 && newCount === 0) {
+        // 旧库有数据，新库为空 → 迁移
+        const exported = legacyDb.export();
+        fs.writeFileSync(this.dbPath, Buffer.from(exported));
+        fs.renameSync(legacyPath, legacyPath + '.migrated');
+        log.log(`已迁移记忆: ${legacyCount} 条事实 (facts.db → facts_${this.userId}.db)`);
+      }
+      legacyDb.close();
+    }
+
     if (fs.existsSync(this.dbPath)) {
       const buf = fs.readFileSync(this.dbPath);
       this.db = new SQL.Database(buf);
@@ -50,6 +81,16 @@ export class FactStore {
     this.db.run('PRAGMA journal_mode = MEMORY');
     this.db.run('PRAGMA synchronous = OFF');
     this._migrate();
+    // 验证 schema 完整性
+    try {
+      const cols = this.db.exec('PRAGMA table_info(facts)');
+      const names = cols[0]?.values?.map(r => r[1]) || [];
+      if (!names.includes('deleted_at')) {
+        log.warn(`Schema 缺少 deleted_at 列，强制重建。当前列: ${names.join(',')}`);
+        this.db.run('DROP TABLE IF EXISTS facts');
+        this._migrate();
+      }
+    } catch {}
     this._cleanRecycleBin();
     this._ready = true;
   }
@@ -68,10 +109,23 @@ export class FactStore {
         deleted_at INTEGER DEFAULT NULL
       )
     `);
-    // 兼容旧表结构: 添加缺失列
-    for (const col of ['user_id', 'confidence', 'half_life_days', 'deleted_at']) {
-      try { this.db.run(`ALTER TABLE facts ADD COLUMN ${col} TEXT DEFAULT NULL`); } catch {}
-    }
+    // 兼容旧表结构: 添加缺失列（逐列检测，避免重复添加报错）
+    const existingCols = new Set();
+    try {
+      const cols = this.db.exec('PRAGMA table_info(facts)');
+      if (cols[0]?.values) {
+        for (const row of cols[0].values) existingCols.add(row[1]); // column name is index 1
+      }
+    } catch {}
+    const addCol = (name, type) => {
+      if (!existingCols.has(name)) {
+        try { this.db.run(`ALTER TABLE facts ADD COLUMN ${name} ${type} DEFAULT NULL`); } catch {}
+      }
+    };
+    addCol('user_id', 'TEXT');
+    addCol('confidence', 'REAL');
+    addCol('half_life_days', 'INTEGER');
+    addCol('deleted_at', 'INTEGER');
     // Create index for fast LIKE search
     this.db.run('CREATE INDEX IF NOT EXISTS idx_facts_created ON facts(created_at)');
     this.db.run('CREATE INDEX IF NOT EXISTS idx_facts_user ON facts(user_id)');
@@ -172,12 +226,6 @@ export class FactStore {
       for (const row of likeResults) {
         if (!existingIds.has(row.fact)) results.push(row);
       }
-    }
-
-    if (results.length === 0 && (tags.length > 0 || searchText)) {
-      results = this._queryAll(
-        `SELECT fact, tags, created_at, confidence, half_life_days FROM facts WHERE ${baseWhere} ORDER BY created_at DESC LIMIT ?`, [uid, k]
-      );
     }
 
     return results.map(r => ({

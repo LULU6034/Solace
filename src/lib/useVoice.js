@@ -308,10 +308,10 @@ export function useVoice() {
         silenceStart = Date.now()
         if (!speakingStart) {
           speakingStart = Date.now()
-          // User started speaking — interrupt agent if playing
-          if (state.value === VoiceState.SPEAKING) {
-            interruptAgent()
-          }
+        }
+        // Agent 说话时，需持续 800ms 人声才算打断，避免杂音/回声误触发
+        if (state.value === VoiceState.SPEAKING && speakingStart > 0 && Date.now() - speakingStart > 800) {
+          interruptAgent()
         }
         // Backchannel after ~1.5s of continuous speech
         if (Date.now() - speakingStart > 1500 && Math.random() < 0.25) {
@@ -435,11 +435,12 @@ export function useVoice() {
       || voices.find(v => v.lang.startsWith('zh'))
     if (zhVoice) utterance.voice = zhVoice
 
-    utterance.onstart = () => { isPlaying = true }
-    utterance.onend = () => { isPlaying = false }
+    utterance.onstart = () => { isPlaying = true; _duckMusic() }
+    utterance.onend = () => { isPlaying = false; _unduckMusic() }
     utterance.onerror = (e) => {
       console.warn('[useVoice] TTS error:', e.error)
       isPlaying = false
+      _unduckMusic()
     }
 
     window.speechSynthesis.speak(utterance)
@@ -517,11 +518,22 @@ export function useVoice() {
 
   function _endMediaSource() {
     _msPending.push(null)
+    let retries = 0
     const finalize = () => {
+      // 等待所有 chunk 被消费
       if (_msPending.length > 1) { setTimeout(finalize, 50); return }
-      if (_ms && _ms.readyState === 'open' && _msBuf && !_msBuf.updating) {
-        try { _ms.endOfStream() } catch {}
+      if (!_ms || _ms.readyState !== 'open' || !_msBuf) {
+        _ms = null; _msBuf = null; _msReady = false; return
       }
+      if (_msBuf.updating) {
+        // 最后一块还在写入中，等它完成
+        if (retries++ < 60) { _msBuf.addEventListener('updateend', finalize, { once: true }); return }
+        // 超时兜底
+        try { _ms.endOfStream() } catch {}
+        _ms = null; _msBuf = null; _msReady = false; return
+      }
+      // 安全关闭
+      try { _ms.endOfStream() } catch {}
       _ms = null; _msBuf = null; _msReady = false
     }
     finalize()
@@ -545,10 +557,56 @@ export function useVoice() {
     }
   }
 
+  // ── 音乐闪避：TTS 说话时降低音乐音量 ──
+  const DUCK_VOLUME = 0.12
+  const FADE_MS = 250
+  let _preDuckVolume = null
+  let _duckFadeTimer = null
+
+  function _cancelFade() {
+    if (_duckFadeTimer) { clearInterval(_duckFadeTimer); _duckFadeTimer = null }
+  }
+
+  function _fadeMusicTo(targetVol) {
+    const a = window.__musicAudio
+    if (!a || a.paused) return
+    const from = a.volume
+    if (Math.abs(from - targetVol) < 0.01) return
+    const steps = 8
+    const delta = (targetVol - from) / steps
+    const stepMs = FADE_MS / steps
+    let i = 0
+    _cancelFade()
+    _duckFadeTimer = setInterval(() => {
+      i++
+      if (i >= steps || !window.__musicAudio) { a.volume = targetVol; _cancelFade() }
+      else { a.volume = Math.max(0, Math.min(1, from + delta * i)) }
+    }, stepMs)
+  }
+
+  function _duckMusic() {
+    const a = window.__musicAudio
+    // 只要音频元素存在且有 src（可能正在缓冲），就执行闪避
+    if (!a || !a.src || a.volume <= DUCK_VOLUME + 0.05) return
+    _cancelFade()
+    if (_preDuckVolume == null) _preDuckVolume = a.volume
+    _fadeMusicTo(DUCK_VOLUME)
+  }
+
+  function _unduckMusic() {
+    const a = window.__musicAudio
+    if (!a || _preDuckVolume == null) { _preDuckVolume = null; return }
+    const target = _preDuckVolume
+    _preDuckVolume = null
+    if (a.paused) return
+    _fadeMusicTo(target)
+  }
+
   async function _processCvQueue() {
     if (_cvBusy || _cvQueue.length === 0) return
     _cvBusy = true
     setState(VoiceState.SPEAKING)
+    _duckMusic()
     const { text, emotion, speed, resolve } = _cvQueue.shift()
     _stopStream()
     _startMediaSource()
@@ -570,22 +628,30 @@ export function useVoice() {
 
     try {
       await window.electronAPI?.voiceTtsSynthesize?.(text, emotion, 'default_female', speed)
-      const startWait = Date.now()
-      while (_msPending.length > 0 && Date.now() - startWait < 30000) {
+      // IPC chunk 可能还在路上，等待 + 排空
+      await new Promise(done => setTimeout(done, 500))
+      while (_msPending.length > 0) {
         await new Promise(done => setTimeout(done, 200))
       }
+      if (_msPending.length === 0) {
+        await new Promise(done => setTimeout(done, 200))
+      }
+      while (_msPending.length > 0) {
+        await new Promise(done => setTimeout(done, 200))
+      }
+      // 关键修复：等 SourceBuffer 完成处理再 endOfStream
+      if (_msBuf?.updating) {
+        await new Promise(d => { _msBuf.addEventListener('updateend', d, { once: true }) })
+      }
       _endMediaSource()
-      // 等待 Audio 播放完毕（最多 30 秒）
+      // 等待 Audio 播放完毕（无超时限制）
       if (currentAudio && !currentAudio.ended) {
-        await Promise.race([
-          new Promise(d => { currentAudio.onended = d }),
-          new Promise(d => setTimeout(d, 30000))
-        ])
+        await new Promise(d => { currentAudio.onended = d })
       }
     } catch (e) { console.warn('[useVoice] CosyVoice failed:', e.message) }
     _stopStream()
     resolve?.(); _cvBusy = false
-    if (_cvQueue.length === 0) setState(VoiceState.IDLE)
+    if (_cvQueue.length === 0) { setState(VoiceState.IDLE); _unduckMusic() }
     if (!isInterrupted) _processCvQueue()
   }
 
@@ -604,6 +670,7 @@ export function useVoice() {
     _stopStream()
     if (currentAudio) { try { currentAudio.stop?.() } catch {}; currentAudio = null }
     isInterrupted = true
+    _unduckMusic()
   }
 
   function clearInterrupt() {

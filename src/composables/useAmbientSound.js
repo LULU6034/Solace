@@ -11,6 +11,8 @@
  *   ambient.stop()
  */
 
+import { getSharedAudioContext } from './useAudioContext.js';
+
 class AmbientSound {
   constructor() {
     this.ac = null;
@@ -22,7 +24,7 @@ class AmbientSound {
 
   _ensureContext() {
     if (!this.ac) {
-      this.ac = new (window.AudioContext || window.webkitAudioContext)();
+      this.ac = getSharedAudioContext();
       this.masterGain = this.ac.createGain();
       this.masterGain.gain.value = 0;
       this.masterGain.connect(this.ac.destination);

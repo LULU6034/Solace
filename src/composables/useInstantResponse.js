@@ -68,14 +68,11 @@ const TONES = {
  * Play an instant acknowledgment tone.
  * Returns immediately (schedules in Web Audio future).
  */
+import { getSharedAudioContext } from './useAudioContext.js';
+
 export function playInstantTone(type = 'ack') {
   try {
-    // Reuse or create AudioContext — lazy init
-    if (!playInstantTone._ac) {
-      playInstantTone._ac = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    const ac = playInstantTone._ac;
-    if (ac.state === 'suspended') ac.resume();
+    const ac = getSharedAudioContext();
 
     const tone = TONES[type];
     if (tone) {
@@ -88,7 +85,7 @@ export function playInstantTone(type = 'ack') {
 
 /** Resume AudioContext (call in click handler to unlock audio) */
 export function unlockAudio() {
-  playInstantTone._ac?.resume();
+  getSharedAudioContext().resume();
 }
 
 /**

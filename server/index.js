@@ -1630,7 +1630,7 @@ async function initHub() {
   const { Personality } = await import('./personality/index.js');
   _Personality = new Personality(getPersistDir());
 
-  const { KnowledgeGraph } = await import('./knowledge/knowledge-graph.js');
+  const { KnowledgeGraph } = await import('./knowledge/memory-graph.js');
   _KnowledgeGraph = new KnowledgeGraph({ persistDir: getPersistDir() });
   // 注入 KG 到记忆工具
   import('./tools/index.js').then(m => m.setKG?.(_KnowledgeGraph));

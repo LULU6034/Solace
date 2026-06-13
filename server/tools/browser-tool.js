@@ -147,8 +147,27 @@ async function _doInit() {
   }
 }
 
-/** 获取空闲浏览器实例（排队机制） */
-function _acquireStagehand() {
+/** 检查浏览器是否还活着 */
+async function _isAlive() {
+  if (!_stagehand) return false;
+  try {
+    const page = _stagehand.page;
+    await page.evaluate(() => 1, { timeout: 3000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 获取空闲浏览器实例（排队机制 + 健康检查） */
+async function _acquireStagehand() {
+  if (_stagehand && !(await _isAlive())) {
+    log.warn('浏览器已断开，重新初始化...');
+    try { await _stagehand.close(); } catch {}
+    _stagehand = null;
+    _initPromise = null;
+    await _doInit();
+  }
   if (!_stagehand) throw new Error('浏览器未初始化，请先调用 preInitBrowser()');
   if (!_busy) {
     _busy = true;

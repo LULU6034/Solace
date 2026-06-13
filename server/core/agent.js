@@ -834,7 +834,7 @@ export async function runAgent({
   let _injectedMessages = messages;
   try {
     if (memoryManager) {
-      const { injectMemoryContext } = await import('./memory/inject.js');
+      const { injectMemoryContext } = await import('../memory/inject.js');
       _injectedMessages = await injectMemoryContext(messages, memoryManager, userText);
     }
     // Collect all injection blocks

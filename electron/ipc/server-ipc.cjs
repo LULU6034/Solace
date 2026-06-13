@@ -30,7 +30,10 @@ class ServerBridge {
     this._connecting = false;
     this._connectResolve = null; // Resolve _connect() promise on ready
     this._startPromise = null;   // Prevent concurrent starts
+    this._deepseekApiKey = '';   // Stagehand browse 工具用
   }
+
+  setApiKey(key) { this._deepseekApiKey = key; }
 
   /**
    * Start the Node.js Agent Server as a child process
@@ -75,6 +78,8 @@ class ServerBridge {
         NODE_ENV: isDev ? 'development' : 'production',
         // HuggingFace 国内镜像（解决 bge-micro-v2 模型下载失败）
         HF_ENDPOINT: 'https://hf-mirror.com',
+        DEEPSEEK_API_KEY: this._deepseekApiKey || '',
+        LLM_BASE_URL: 'https://api.deepseek.com/v1',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,

@@ -203,6 +203,9 @@ app.whenReady().then(() => {
   // 加载配置，初始化语音 TTS 服务
   const cfg = loadConfigFile();
   registerVoiceIPC(cfg?.dashscopeApiKey || '');
+  // 将 DeepSeek API Key 传给 server 进程（Stagehand browse 工具需要）
+  const bridge = getBridge();
+  if (bridge) bridge.setApiKey(cfg?.deepseekApiKey || cfg?.apiKey || '');
   createChatWindow();
   createTray();
 });

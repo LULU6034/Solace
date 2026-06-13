@@ -17,6 +17,7 @@ import { musicTools, setMusicMemoryStore } from './music-tools.js';
 import { kbTools } from '../knowledge/tools.js';
 import { kbGraphTools } from '../knowledge/graph-tools.js';
 import { reminderTools } from './reminder-tool.js';
+import { browseTool, isBrowserReady } from './browser-tool.js';
 
 // Re-export from shared module to break circular dependency
 export { setMemoryStore, getMemoryStore } from './memory-store-ref.js';
@@ -45,6 +46,7 @@ export function getAllTools() {
     ...kbTools,
     ...kbGraphTools,
     ...reminderTools,
+    ...(isBrowserReady() ? [browseTool] : []),
   ];
 }
 

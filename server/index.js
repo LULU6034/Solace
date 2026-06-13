@@ -1694,6 +1694,8 @@ function _preload() {
       await import('./core/coordinator.js');
       await import('./security/gate.js');
       await import('./vision/expert.js');
+      // 浏览器预热（后台异步，不阻塞启动）
+      import('./tools/browser-tool.js').then(m => m.preInitBrowser()).catch(() => {});
       const t2 = Date.now();
       log.log(`预热完成 (${t2 - t0}ms)`);
     } catch (err) {
@@ -1741,6 +1743,8 @@ httpServer.listen(PORT, '127.0.0.1', async () => {
 // Graceful shutdown
 async function shutdown() {
   log.log('正在关闭...');
+  // 关闭浏览器
+  try { const { closeBrowser: _cb } = await import('./tools/browser-tool.js'); await _cb(); } catch {}
   if (_Hub) await _Hub.stop();
   wss.close(() => {
     httpServer.close(() => process.exit(0));

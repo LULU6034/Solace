@@ -240,9 +240,11 @@ async function _waitForCaptcha(page) {
         const startX = box.x + box.width / 2;
         const startY = box.y + box.height / 2;
         const wrapperBox = await wrapper.boundingBox();
-        const maxDist = wrapperBox ? wrapperBox.width - box.width : 300;
-        // 在估算距离 ±30px 范围内，从远到近尝试
-        const offsets = [0, 20, -20, 40, -40, 15, -15, 30, -30, 10, -10];
+        const maxDist = wrapperBox ? (wrapperBox.width - box.width - 10) : 300;
+        // 宽度覆盖：先扫主要区间，再微调
+        const offsets = distance > 50
+          ? [0, 30, -30, 60, -60, 15, -15, 45, -45, 80, -80, 100, 50]
+          : [0, 20, 40, 60, 80, 100, 120, 140, 160, 180, 200, 220, 250];
         let passed = false;
 
         for (const off of offsets) {

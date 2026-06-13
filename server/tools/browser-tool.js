@@ -240,11 +240,13 @@ async function _waitForCaptcha(page) {
         const startX = box.x + box.width / 2;
         const startY = box.y + box.height / 2;
         const wrapperBox = await wrapper.boundingBox();
-        const maxDist = wrapperBox ? (wrapperBox.width - box.width - 10) : 300;
-        // 宽度覆盖：先扫主要区间，再微调
-        const offsets = distance > 50
-          ? [0, 30, -30, 60, -60, 15, -15, 45, -45, 80, -80, 100, 50]
-          : [0, 20, 40, 60, 80, 100, 120, 140, 160, 180, 200, 220, 250];
+        const maxDist = wrapperBox ? Math.round(wrapperBox.width - box.width - 5) : 300;
+        log.log(`滑块范围: 0-${maxDist}px, 估算: ${distance}px`);
+        // 快速扫描：估算起点 165 → 向外扩到 300（步长30，约10次）
+        const offsets = [0];
+        for (let step = 30; step <= maxDist; step += 30) {
+          offsets.push(step, -step);
+        }
         let passed = false;
 
         for (const off of offsets) {

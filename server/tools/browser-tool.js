@@ -125,9 +125,8 @@ async function _doInit() {
     const { Stagehand } = await import('@browserbasehq/stagehand');
     _stagehand = new Stagehand({
       env: 'LOCAL',
-      headless: true,
+      headless: false,  // 可见模式：方便调试，确认后再切回 true
       browserConfig: {
-        // 使用系统 Edge（不额外下载 Chromium）
         channel: 'msedge',
         userDataDir: path.join(os.tmpdir(), 'sonder-browser-data'),
         args: [
@@ -136,7 +135,6 @@ async function _doInit() {
           '--disable-dev-shm-usage',
           '--no-first-run',
           '--no-default-browser-check',
-          '--disable-features=TranslateUI',
         ],
       },
       modelName: process.env.LLM_MODEL || 'deepseek-chat',
@@ -145,7 +143,11 @@ async function _doInit() {
         apiKey: process.env.DEEPSEEK_API_KEY || '',
       },
     });
-    await _stagehand.init();
+    // 30 秒超时，避免卡死
+    await Promise.race([
+      _stagehand.init(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('浏览器启动超时(30s)')), 30000)),
+    ]);
     log.log('浏览器预热完成');
     return _stagehand;
   } catch (err) {

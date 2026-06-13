@@ -86,11 +86,9 @@ export const browseTool = {
 
 // ═══ 生命周期 ═══
 
-/** 服务启动时预热（不阻塞） */
+/** 预热入口（不启动浏览器，仅占位） */
 export function preInitBrowser() {
-  if (_initPromise) return _initPromise;
-  _initPromise = _doInit();
-  return _initPromise;
+  // 不预热——Agent 调用 browse 时才懒加载启动
 }
 
 /** 优雅关闭 */
@@ -122,12 +120,16 @@ async function _doInit() {
       env: 'LOCAL',
       headless: true,
       browserConfig: {
+        // 使用系统 Edge（不额外下载 Chromium）
+        channel: 'msedge',
         userDataDir: path.join(os.tmpdir(), 'sonder-browser-data'),
         args: [
           '--remote-debugging-port=9223',
-          '--no-sandbox',
           '--disable-gpu',
           '--disable-dev-shm-usage',
+          '--no-first-run',
+          '--no-default-browser-check',
+          '--disable-features=TranslateUI',
         ],
       },
       modelName: process.env.LLM_MODEL || 'deepseek-chat',
@@ -161,14 +163,20 @@ async function _isAlive() {
 
 /** 获取空闲浏览器实例（排队机制 + 健康检查） */
 async function _acquireStagehand() {
+  // 懒加载：Agent 首次调用 browse 时才启动浏览器
+  if (!_stagehand) {
+    if (!_initPromise) _initPromise = _doInit();
+    await _initPromise;
+  }
+  // 健康检查：断连自动重建
   if (_stagehand && !(await _isAlive())) {
     log.warn('浏览器已断开，重新初始化...');
     try { await _stagehand.close(); } catch {}
     _stagehand = null;
-    _initPromise = null;
-    await _doInit();
+    _initPromise = _doInit();
+    await _initPromise;
   }
-  if (!_stagehand) throw new Error('浏览器未初始化，请先调用 preInitBrowser()');
+  if (!_stagehand) throw new Error('浏览器初始化失败');
   if (!_busy) {
     _busy = true;
     return _stagehand;

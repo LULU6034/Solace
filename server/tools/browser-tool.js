@@ -98,7 +98,10 @@ export async function closeBrowser() {
 // ═══ 内部实现 ═══
 
 async function _doInit() {
-  const { chromium } = await import('playwright');
+  const { chromium } = await import('playwright-extra');
+  const { default: StealthPlugin } = await import('puppeteer-extra-plugin-stealth');
+  chromium.use(StealthPlugin());
+
   _browser = await chromium.launch({
     headless: false,
     args: [
@@ -106,22 +109,10 @@ async function _doInit() {
       '--no-sandbox',
       '--disable-gpu',
       '--disable-dev-shm-usage',
-      '--disable-blink-features=AutomationControlled',
     ],
   });
-  const context = await _browser.newContext({
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
-    viewport: { width: 1920, height: 1080 },
-    locale: 'zh-CN',
-    timezoneId: 'Asia/Shanghai',
-  });
-  _page = await context.newPage();
-  await _page.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => false });
-    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-    Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en'] });
-  });
-  log.log('浏览器已启动');
+  _page = await _browser.newPage();
+  log.log('浏览器已启动（反检测模式）');
 }
 
 async function _acquirePage() {
@@ -173,9 +164,9 @@ function _detectSearchUrl(q) {
     case '京东': return `https://search.jd.com/Search?keyword=${enc}`;
     case '淘宝': return `https://s.taobao.com/search?q=${enc}`;
     case 'B站': return `https://search.bilibili.com/all?keyword=${enc}`;
-    case '优酷': return `https://www.baidu.com/s?wd=site:youku.com+${enc}`;
-    case '爱奇艺': return `https://www.baidu.com/s?wd=site:iqiyi.com+${enc}`;
-    case '腾讯视频': return `https://www.baidu.com/s?wd=site:v.qq.com+${enc}`;
+    case '优酷': return `https://so.youku.com/search_video/q_${enc}`;
+    case '爱奇艺': return `https://so.iqiyi.com/so/q_${enc}`;
+    case '腾讯视频': return `https://v.qq.com/x/search/?q=${enc}`;
     case '抖音': return `https://www.douyin.com/search/${enc}`;
     default: return `https://www.baidu.com/s?wd=${encodeURIComponent(q)}`;
   }

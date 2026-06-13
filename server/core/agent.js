@@ -380,6 +380,7 @@ async function _runAnswerPhase({
     const toolsMod = await import('../tools/index.js');
     tools = toolsMod.getAllTools();
     toolMap = new Map(tools.map(t => [t.name, t]));
+    log.log(`已加载 ${tools.length} 个工具:`, tools.map(t => t.name).join(', '));
   } catch (err) {
     log.warn(`工具加载失败: ${err.message}`);
   }

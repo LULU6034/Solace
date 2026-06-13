@@ -22,6 +22,17 @@ export const webSearch = {
   async invoke({ query, num = 5 }) {
     if (!query?.trim()) return '搜索关键词不能为空';
 
+    // ★ 自动升级到浏览器搜索（视频/电商网站数据 web_search 拿不到）
+    const browseKeywords = ['京东', 'jd', '淘宝', 'taobao', 'bilibili', 'B站', 'b站', '哔哩', '优酷', 'youku', '爱奇艺', 'iqiyi', '腾讯视频', '抖音', 'douyin', '拼多多', '1688', '苏宁', '小红书'];
+    if (browseKeywords.some(k => query.includes(k))) {
+      try {
+        const { browseTool } = await import('./browser-tool.js');
+        return await browseTool.invoke({ action: 'search', query });
+      } catch (err) {
+        // 浏览器不可用，继续用 web_search
+      }
+    }
+
     const maxResults = Math.min(num || 5, 10);
 
     // 1. Try Tavily Search API first (works in China)

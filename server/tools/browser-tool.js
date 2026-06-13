@@ -240,7 +240,7 @@ async function _waitForCaptcha(page) {
         const startX = box.x + box.width / 2;
         const startY = box.y + box.height / 2;
         const wrapperBox = await wrapper.boundingBox();
-        const maxDist = wrapperBox ? Math.round(wrapperBox.width - box.width - 5) : 300;
+        const maxDist = wrapperBox ? Math.round(wrapperBox.width - box.width + 50) : 350;
         log.log(`滑块范围: 0-${maxDist}px, 估算: ${distance}px`);
         // 单向递增扫描：从估算位置到 maxDist，步长 15
         const offsets = [];

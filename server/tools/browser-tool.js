@@ -3,9 +3,12 @@
 // 纯 Playwright 实现，不依赖 Stagehand。
 // 任务类型: navigate(打开网页), search(搜索引擎), extract(提取内容)
 
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import os from 'node:os';
 import { createModuleLogger } from '../lib/debug-log.js';
+
+const _require = createRequire(import.meta.url);
 
 const log = createModuleLogger('browser-tool');
 
@@ -87,7 +90,7 @@ export function setBrowserApiKey(_key) {}
 
 export function isBrowserReady() {
   try {
-    require.resolve('playwright');
+    _require.resolve('playwright');
     return true;
   } catch {
     return false;

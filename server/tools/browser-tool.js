@@ -317,26 +317,31 @@ async function _dismissAds(page) {
 /** 自动点击第一个搜索结果 + 播放按钮 */
 async function _autoClickPlay(page) {
   try {
-    // 第一步：点第一个视频（封面或标题链接）
-    const firstItem = [
-      '.v-link img', '.yk-card img', '.result-item img',
-      '.video-item img', '.search-item img', '.card-poster img',
-      'a[href*="video"] img', 'a[href*="detail"] img',
-      '.v-link a', '.yk-title a', '.video-title a', 'h3 a',
-    ];
-    for (const sel of firstItem) {
-      try {
-        const el = page.locator(sel).first();
-        if (await el.isVisible({ timeout: 300 }).catch(() => false)) {
-          log.log('点击第一个结果');
-          await el.click({ timeout: 2000 }).catch(() => {});
-          await new Promise(r => setTimeout(r, 3000)); // 等播放页加载
-          break;
+    // 找到第一个视频链接的 href，直接 goto 过去（避免开新窗口）
+    const videoUrl = await page.evaluate(() => {
+      const links = [
+        '.v-link a', '.yk-title a', '.video-title a', 'h3 a',
+        '.result-item a', '.video-item a', '.search-item a',
+        'a[href*="video"]', 'a[href*="detail"]', 'a[href*="play"]',
+        '.card-poster', '.card-title a',
+      ];
+      for (const sel of links) {
+        const el = document.querySelector(sel);
+        if (el) {
+          const href = el.href || el.closest('a')?.href;
+          if (href && !href.includes('javascript:')) return href;
         }
-      } catch {}
+      }
+      return null;
+    });
+
+    if (videoUrl) {
+      log.log(`打开视频页: ${videoUrl.slice(0, 60)}`);
+      await page.goto(videoUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      await new Promise(r => setTimeout(r, 3000)); // 等播放器加载
     }
 
-    // 第二步：点播放按钮
+    // 点播放按钮
     const playBtns = [
       '.prism-play-btn', '.player-start', '.play-btn',
       '[class*="play-btn"]', '.start-play', '.ykp-play-btn',

@@ -142,22 +142,43 @@ function _releasePage() {
   if (next) next();
 }
 
-/** 根据搜索词自动判断目标网站 */
+/** 根据搜索词自动判断目标网站，并去掉站点关键词 */
 function _detectSearchUrl(q) {
   const SITES = [
-    { keys: ['京东', 'jd.com', 'jd'], url: `https://search.jd.com/Search?keyword=${encodeURIComponent(q)}` },
-    { keys: ['淘宝', 'taobao', 'tb'], url: `https://s.taobao.com/search?q=${encodeURIComponent(q)}` },
-    { keys: ['B站', 'bilibili', 'b站', '哔哩'], url: `https://search.bilibili.com/all?keyword=${encodeURIComponent(q)}` },
-    { keys: ['优酷', 'youku'], url: `https://so.youku.com/search_video/q_${encodeURIComponent(q)}` },
-    { keys: ['爱奇艺', 'iqiyi', '爱奇'], url: `https://so.iqiyi.com/so/q_${encodeURIComponent(q)}` },
-    { keys: ['腾讯视频', 'v.qq', 'tencent'], url: `https://v.qq.com/x/search/?q=${encodeURIComponent(q)}` },
-    { keys: ['抖音', 'douyin'], url: `https://www.douyin.com/search/${encodeURIComponent(q)}` },
+    { keys: ['京东', 'jd.com', 'jd'] },
+    { keys: ['淘宝', 'taobao', 'tb'] },
+    { keys: ['B站', 'bilibili', 'b站', '哔哩'] },
+    { keys: ['优酷', 'youku'] },
+    { keys: ['爱奇艺', 'iqiyi', '爱奇'] },
+    { keys: ['腾讯视频', 'v.qq', 'tencent'] },
+    { keys: ['抖音', 'douyin'] },
   ];
-  for (const { keys, url } of SITES) {
-    if (keys.some(k => q.includes(k))) return url;
+
+  // 去掉站点关键词，只留真正搜索词
+  let clean = q;
+  let site = null;
+  for (const s of SITES) {
+    for (const k of s.keys) {
+      if (clean.includes(k)) {
+        clean = clean.replace(k, '').trim();
+        site = s.keys[0];
+        break;
+      }
+    }
+    if (site) break;
   }
-  // 默认百度
-  return `https://www.baidu.com/s?wd=${encodeURIComponent(q)}`;
+
+  const enc = encodeURIComponent(clean || q);
+  switch (site) {
+    case '京东': return `https://search.jd.com/Search?keyword=${enc}`;
+    case '淘宝': return `https://s.taobao.com/search?q=${enc}`;
+    case 'B站': return `https://search.bilibili.com/all?keyword=${enc}`;
+    case '优酷': return `https://so.youku.com/search_video/q_${enc}`;
+    case '爱奇艺': return `https://so.iqiyi.com/so/q_${enc}`;
+    case '腾讯视频': return `https://v.qq.com/x/search/?q=${enc}`;
+    case '抖音': return `https://www.douyin.com/search/${enc}`;
+    default: return `https://www.baidu.com/s?wd=${encodeURIComponent(q)}`;
+  }
 }
 
 /** 自动关闭常见广告弹窗 */

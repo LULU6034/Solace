@@ -117,7 +117,8 @@ async function stopVoice() {
   _up?.updateAudio({ volume: 0, speaking: false, thinking: false }); ambient.transition("idle")
 }
 
-var voiceHistory = []
+var voiceHistory = (function() { try { var h = JSON.parse(localStorage.getItem('voice-history') || '[]'); return Array.isArray(h) ? h.slice(-20) : []; } catch(e) { return []; } })()
+function _saveVoiceHistory() { try { localStorage.setItem('voice-history', JSON.stringify(voiceHistory.slice(-20))); } catch(e) {} }
 async function callAgentVoice(text) {
   var convId = "voice_" + Date.now(), fullText = "", emotion = "neutral", spokenLen = 0
   // 解析 Agent 回复中的 [emotion:xxx] 标签
@@ -159,7 +160,7 @@ async function callAgentVoice(text) {
   return await new Promise(function(resolve) {
     var timer = setTimeout(function() {
       cleanup(); voice.speakViaCosyVoice(polishForTTS(fullText), emotion, 1.0)
-      voiceHistory.push({ role: "user", content: text }); resolve({ text: fullText || "Okay.", emotion })
+      voiceHistory.push({ role: "user", content: text }); _saveVoiceHistory(); resolve({ text: fullText || "Okay.", emotion })
     }, 45000)
     function onChunk(data) {
       var d = data?.data || data; if (!d?.content) return
@@ -208,7 +209,7 @@ async function callAgentVoice(text) {
           var remain = fullText.slice(spokenLen).trim()
           if (remain.length > 0) voice.speakViaCosyVoice(polishForTTS(remain), emotion, 1.0)
           // 立即 resolve，不阻塞 UI；音乐播放放后台
-          voiceHistory.push({ role: "user", content: text }, { role: "assistant", content: fullText || "Okay." })
+          voiceHistory.push({ role: "user", content: text }, { role: "assistant", content: fullText || "Okay." }); _saveVoiceHistory()
           if (voiceHistory.length > 20) voiceHistory.splice(0, 2)
           resolve({ text: fullText || "Okay.", emotion }); streamingText.value = ""
           // 后台获取歌曲 URL 并播放
@@ -250,7 +251,7 @@ async function callAgentVoice(text) {
       // 清理 markdown 格式（**粗体**、链接、代码等）
       remain = remain.replace(/\*\*|[*_~`#>\\\-\[\]()|{}]/g, '').replace(/  +/g, ' ').trim()
       if (remain.length > 0) voice.speakViaCosyVoice(polishForTTS(remain), emotion, 1.0)
-      voiceHistory.push({ role: "user", content: text }, { role: "assistant", content: fullText || "Okay." })
+      voiceHistory.push({ role: "user", content: text }, { role: "assistant", content: fullText || "Okay." }); _saveVoiceHistory()
       if (voiceHistory.length > 20) voiceHistory.splice(0, 2)
       resolve({ text: fullText || "Okay.", emotion }); streamingText.value = ""
     }

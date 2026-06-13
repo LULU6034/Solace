@@ -249,11 +249,11 @@ const emit = defineEmits(['done'])
 
 // 分类
 import { User, Zap, Bot, Settings, Info, Brain, Shield, Mic, HardDrive, Music } from 'lucide-vue-next'
-import MemoryPanel from './MemoryPanel.vue'
-import PersonalityPanel from './PersonalityPanel.vue'
+import MemoryPanel from '../memory/MemoryPanel.vue'
+import PersonalityPanel from '../personality/PersonalityPanel.vue'
 import PrivacyPanel from './PrivacyPanel.vue'
-import VoiceClonePanel from './VoiceClonePanel.vue'
-import MusicPanel from './MusicPanel.vue'
+import VoiceClonePanel from '../voice/VoiceClonePanel.vue'
+import MusicPanel from '../music/MusicPanel.vue'
 
 const categories = [
   { id: 'profile',     icon: User,     label: '用户',   color: '#6366F1' },
@@ -578,8 +578,8 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 async function save() {
   saving.value = true; error.value = null
   try {
-    const { llmService } = await import('../lib/llm/LLMProvider')
-    const { useLLMStore } = await import('../store/llmStore')
+    const { llmService } = await import('../../llm/LLMProvider')
+    const { useLLMStore } = await import('../../store/llmStore')
 
     let model = claudeModel.value
     if (provider.value === 'deepseek') model = deepseekModel.value

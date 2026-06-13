@@ -52,10 +52,10 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue"
-import { useVoice, VoiceState } from "../lib/useVoice.js"
-import { _up } from "../lib/unified-particles.js"
-import { getAmbientSound } from "../lib/ambient-sound.js"
-import { playInstantTone, unlockAudio } from "../lib/instant-response.js"
+import { useVoice, VoiceState } from "../../composables/useVoice.js"
+import { _up } from "../../composables/useUnifiedParticles.js"
+import { getAmbientSound } from "../../composables/useAmbientSound.js"
+import { playInstantTone, unlockAudio } from "../../composables/useInstantResponse.js"
 
 const voice = useVoice()
 const ambient = getAmbientSound()

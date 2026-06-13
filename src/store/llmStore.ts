@@ -1,6 +1,6 @@
 import { createStore } from 'zustand/vanilla';
-import type { LLMConfig } from '../lib/llm/types';
-import { llmService } from '../lib/llm/LLMProvider';
+import type { LLMConfig } from '../llm/types';
+import { llmService } from '../llm/LLMProvider';
 
 interface LLMStore {
   config: LLMConfig | null;

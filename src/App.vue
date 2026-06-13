@@ -48,15 +48,15 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { MessageCircle, Users, Settings, Sparkles, Mic, Brain, Database } from 'lucide-vue-next'
-import ChatPage from './components/ChatPage.vue'
-import GroupChatPage from './components/GroupChatPage.vue'
-import VoiceChat from './components/VoiceChat.vue'
-import RolesPage from './components/RolesPage.vue'
-import TopMiniPlayer from './components/TopMiniPlayer.vue'
-import ConflictDialog from './components/ConflictDialog.vue'
-import MemoryGraphPage from './components/MemoryGraphPage.vue'
-import KnowledgePage from './components/KnowledgePage.vue'
-import SettingsPanel from './components/SettingsPanel.vue'
+import ChatPage from './pages/chat/ChatPage.vue'
+import GroupChatPage from './pages/chat/GroupChatPage.vue'
+import VoiceChat from './pages/voice/VoiceChat.vue'
+import RolesPage from './pages/roles/RolesPage.vue'
+import TopMiniPlayer from './pages/music/TopMiniPlayer.vue'
+import ConflictDialog from './pages/memory/ConflictDialog.vue'
+import MemoryGraphPage from './pages/memory/MemoryGraphPage.vue'
+import KnowledgePage from './pages/knowledge/KnowledgePage.vue'
+import SettingsPanel from './pages/settings/SettingsPanel.vue'
 
 // ── 窗口拖动 ──
 let isDragging = false, dragSX = 0, dragSY = 0
@@ -132,7 +132,7 @@ onMounted(async () => {
     if (saved) { try { savedConfig = JSON.parse(saved) } catch {} }
   }
   if (savedConfig) {
-    try { const { llmService } = await import('./lib/llm/LLMProvider'); llmService.restore(savedConfig) } catch {}
+    try { const { llmService } = await import('./llm/LLMProvider'); llmService.restore(savedConfig) } catch {}
   }
 })
 

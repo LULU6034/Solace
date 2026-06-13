@@ -219,7 +219,7 @@ import {
   Database, GitBranch
 } from 'lucide-vue-next'
 import gsap from 'gsap'
-import { Spring, animSpeed, staggerList } from '../animations/gsap'
+import { Spring, animSpeed, staggerList } from '../../animations/gsap'
 
 // ── 标签页 ──
 const tabs = [

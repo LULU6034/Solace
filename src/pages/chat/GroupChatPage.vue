@@ -176,7 +176,7 @@ import { ref, reactive, computed, watch, nextTick, onMounted, onUnmounted } from
 import { Check, ArrowUp } from 'lucide-vue-next'
 import gsap from 'gsap'
 import { marked } from 'marked'
-import { animSpeed, Spring } from '../animations/gsap'
+import { animSpeed, Spring } from '../../animations/gsap'
 
 marked.setOptions({ breaks: true, gfm: true })
 

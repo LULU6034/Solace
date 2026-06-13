@@ -606,7 +606,6 @@ export function useVoice() {
     if (_cvBusy || _cvQueue.length === 0) return
     _cvBusy = true
     setState(VoiceState.SPEAKING)
-    _duckMusic()
     const { text, emotion, speed, resolve } = _cvQueue.shift()
     _stopStream()
     _startMediaSource()
@@ -651,7 +650,7 @@ export function useVoice() {
     } catch (e) { console.warn('[useVoice] CosyVoice failed:', e.message) }
     _stopStream()
     resolve?.(); _cvBusy = false
-    if (_cvQueue.length === 0) { setState(VoiceState.IDLE); _unduckMusic() }
+    if (_cvQueue.length === 0) { setState(VoiceState.IDLE) }
     if (!isInterrupted) _processCvQueue()
   }
 
@@ -812,6 +811,12 @@ export function useVoice() {
   function setState(newState) {
     const oldState = state.value
     state.value = newState
+    // 音乐闪避：进入/退出 SPEAKING 状态时压低/恢复音乐
+    if (newState === VoiceState.SPEAKING && oldState !== VoiceState.SPEAKING) {
+      _duckMusic()
+    } else if (newState !== VoiceState.SPEAKING && oldState === VoiceState.SPEAKING) {
+      _unduckMusic()
+    }
     if (onStateChangeCallback) {
       onStateChangeCallback({ oldState, newState })
     }

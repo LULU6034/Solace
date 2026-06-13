@@ -34,15 +34,10 @@ export const browseTool = {
         description: 'navigate=打开URL, search=搜索关键词',
       },
       query: { type: 'string', description: 'URL(搭配navigate)或搜索词(搭配search)' },
-      site: {
-        type: 'string',
-        enum: ['baidu', 'bing', 'jd', 'taobao', 'bilibili', 'youku', 'iqiyi', 'tencent', 'douyin'],
-        description: '网站: baidu/bing=搜索, jd/taobao=电商, bilibili/youku/iqiyi/tencent=视频, douyin=短视频',
-      },
     },
     required: ['action', 'query'],
   },
-  async invoke({ action, query, site }) {
+  async invoke({ action, query }) {
     const page = await _acquirePage();
     try {
       const q = String(query || '').trim();
@@ -51,19 +46,7 @@ export const browseTool = {
       if (action === 'navigate') {
         targetUrl = /^https?:\/\//i.test(q) ? q : `https://${q}`;
       } else {
-        // search
-        const urls = {
-          baidu: `https://www.baidu.com/s?wd=${encodeURIComponent(q)}`,
-          bing: `https://www.bing.com/search?q=${encodeURIComponent(q)}`,
-          jd: `https://search.jd.com/Search?keyword=${encodeURIComponent(q)}`,
-          taobao: `https://s.taobao.com/search?q=${encodeURIComponent(q)}`,
-          bilibili: `https://search.bilibili.com/all?keyword=${encodeURIComponent(q)}`,
-          youku: `https://so.youku.com/search_video/q_${encodeURIComponent(q)}`,
-          iqiyi: `https://so.iqiyi.com/so/q_${encodeURIComponent(q)}`,
-          tencent: `https://v.qq.com/x/search/?q=${encodeURIComponent(q)}`,
-          douyin: `https://www.douyin.com/search/${encodeURIComponent(q)}`,
-        };
-        targetUrl = urls[site] || urls.baidu;
+        targetUrl = _detectSearchUrl(q);
       }
 
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
@@ -140,6 +123,24 @@ function _releasePage() {
   _busy = false;
   const next = _pendingQueue.shift();
   if (next) next();
+}
+
+/** 根据搜索词自动判断目标网站 */
+function _detectSearchUrl(q) {
+  const SITES = [
+    { keys: ['京东', 'jd.com', 'jd'], url: `https://search.jd.com/Search?keyword=${encodeURIComponent(q)}` },
+    { keys: ['淘宝', 'taobao', 'tb'], url: `https://s.taobao.com/search?q=${encodeURIComponent(q)}` },
+    { keys: ['B站', 'bilibili', 'b站', '哔哩'], url: `https://search.bilibili.com/all?keyword=${encodeURIComponent(q)}` },
+    { keys: ['优酷', 'youku'], url: `https://so.youku.com/search_video/q_${encodeURIComponent(q)}` },
+    { keys: ['爱奇艺', 'iqiyi', '爱奇'], url: `https://so.iqiyi.com/so/q_${encodeURIComponent(q)}` },
+    { keys: ['腾讯视频', 'v.qq', 'tencent'], url: `https://v.qq.com/x/search/?q=${encodeURIComponent(q)}` },
+    { keys: ['抖音', 'douyin'], url: `https://www.douyin.com/search/${encodeURIComponent(q)}` },
+  ];
+  for (const { keys, url } of SITES) {
+    if (keys.some(k => q.includes(k))) return url;
+  }
+  // 默认百度
+  return `https://www.baidu.com/s?wd=${encodeURIComponent(q)}`;
 }
 
 /** 自动关闭常见广告弹窗 */

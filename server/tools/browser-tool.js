@@ -106,9 +106,14 @@ export async function closeBrowser() {
   }
 }
 
-/** 浏览器是否就绪 */
+/** 浏览器模块是否可用（Stagehand 已安装即可，使用时懒加载） */
 export function isBrowserReady() {
-  return _stagehand !== null;
+  try {
+    require.resolve('@browserbasehq/stagehand');
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ═══ 内部实现 ═══

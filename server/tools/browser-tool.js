@@ -52,10 +52,13 @@ export const browseTool = {
       // ═══ navigate / search: 打开页面 ═══
       if (action === 'navigate' || action === 'search') {
         await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-        if (action === 'search') await new Promise(r => setTimeout(r, 1500));
-        await _dismissAds(page);
-        await _waitForCaptcha(page);
-      }
+        if (action === 'search') {
+          await new Promise(r => setTimeout(r, 1500));
+          await _dismissAds(page);
+          await _waitForCaptcha(page);
+          // 搜视频站 → 自动点第一个结果播放
+          await _autoClickPlay(page);
+        }
 
       // ═══ click: 点击元素 ═══
       if (action === 'click') {
@@ -308,6 +311,51 @@ async function _dismissAds(page) {
     }
     // 按 Escape 关闭可能的模态框
     await page.keyboard.press('Escape').catch(() => {});
+  } catch {}
+}
+
+/** 自动点击第一个搜索结果 + 播放按钮 */
+async function _autoClickPlay(page) {
+  try {
+    // 第一步：点第一个视频（封面或标题链接）
+    const firstItem = [
+      '.v-link img', '.yk-card img', '.result-item img',
+      '.video-item img', '.search-item img', '.card-poster img',
+      'a[href*="video"] img', 'a[href*="detail"] img',
+      '.v-link a', '.yk-title a', '.video-title a', 'h3 a',
+    ];
+    for (const sel of firstItem) {
+      try {
+        const el = page.locator(sel).first();
+        if (await el.isVisible({ timeout: 300 }).catch(() => false)) {
+          log.log('点击第一个结果');
+          await el.click({ timeout: 2000 }).catch(() => {});
+          await new Promise(r => setTimeout(r, 3000)); // 等播放页加载
+          break;
+        }
+      } catch {}
+    }
+
+    // 第二步：点播放按钮
+    const playBtns = [
+      '.prism-play-btn', '.player-start', '.play-btn',
+      '[class*="play-btn"]', '.start-play', '.ykp-play-btn',
+      '.txp_btn_play', '.iqp-play-btn', '.bpx-player-ctrl-play',
+      '.prism-big-play-btn', 'video',
+    ];
+    for (const sel of playBtns) {
+      try {
+        const el = page.locator(sel).first();
+        if (await el.isVisible({ timeout: 500 }).catch(() => false)) {
+          await el.hover({ timeout: 500 }).catch(() => {});
+          await new Promise(r => setTimeout(r, 200));
+          await el.click({ timeout: 2000 }).catch(() => {});
+          log.log('已点播放');
+          await new Promise(r => setTimeout(r, 2000));
+          return;
+        }
+      } catch {}
+    }
   } catch {}
 }
 

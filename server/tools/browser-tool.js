@@ -270,37 +270,75 @@ async function _waitManualCaptcha(page) {
   log.warn('验证码等待超时');
 }
 
-/** 图像识别：通过 Canvas 像素对比计算滑块缺口距离 */
+/** 图像识别：截图分析滑块缺口位置 */
 async function _calcSlideDistance(page, cfg) {
-  return page.evaluate(({ wrapper, bg }) => {
+  const { wrapper, slider, bg } = cfg;
+
+  // 方法: 截取背景图 → Canvas 像素扫描 → 找缺口边缘
+  const distance = await page.evaluate(async ({ wrapper, bg }) => {
     const wrapperEl = document.querySelector(wrapper);
-    const bgEl = document.querySelector(bg) || wrapperEl?.querySelector('img,canvas,.bg-img');
     if (!wrapperEl) return null;
 
-    const rect = wrapperEl.getBoundingClientRect();
-    const canvas = document.createElement('canvas');
-    canvas.width = rect.width;
-    canvas.height = rect.height;
-    const ctx = canvas.getContext('2d');
+    // 优先找 canvas（极验）或 img（易盾）
+    const bgCanvas = wrapperEl.querySelector('canvas');
+    const bgImg = wrapperEl.querySelector('img[class*="bg"], .yidun_bg-img, .geetest_canvas_bg');
 
-    // 截取验证码区域到 canvas（用 html2canvas 原理的简化版）
-    // 这里直接用像素扫描——找缺口
-    // 缺口特征：亮度突变（从暗到亮的边缘）
+    let bgData = null;
+    let bgWidth = 0, bgHeight = 0;
 
-    // 简化方案：取 wrapper 截图并用边缘检测找缺口
-    // 用 scrollLeft/scrollTop 模拟
-    const bgSrc = bgEl?.src || bgEl?.style?.backgroundImage;
-    if (!bgSrc && !bgEl) {
-      // 无背景图，尝试直接分析 wrapper 的视觉特征
-      // 常见模式：缺口位置 = wrapper宽度 * 随机比例，范围 0.2~0.7
-      // 实际场景中缺口在右侧 30%-70% 区域
-      return Math.round(rect.width * (0.3 + Math.random() * 0.4));
+    if (bgCanvas) {
+      bgWidth = bgCanvas.width;
+      bgHeight = bgCanvas.height;
+      const ctx = bgCanvas.getContext('2d');
+      bgData = ctx.getImageData(0, 0, bgWidth, bgHeight).data;
+    } else if (bgImg && bgImg.complete) {
+      bgWidth = bgImg.naturalWidth || bgImg.width;
+      bgHeight = bgImg.naturalHeight || bgImg.height;
+      const c = document.createElement('canvas');
+      c.width = bgWidth; c.height = bgHeight;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(bgImg, 0, 0, bgWidth, bgHeight);
+      bgData = ctx.getImageData(0, 0, bgWidth, bgHeight).data;
     }
 
-    // 有背景图：找到缺口的水平位置
-    // 缺口处亮度/边缘不同于周围
-    return Math.round(rect.width * 0.45); // 默认保守估计
-  }, cfg);
+    if (!bgData || bgWidth === 0) return null;
+
+    // 扫描缺口边缘（Y轴中间一行，X轴从 30% 开始向右）
+    const y = Math.floor(bgHeight / 2);
+    const startX = Math.floor(bgWidth * 0.2);
+    let prevR = 0, prevG = 0;
+    let maxDiff = 0, gapX = startX;
+
+    for (let x = startX; x < bgWidth; x++) {
+      const idx = (y * bgWidth + x) * 4;
+      const r = bgData[idx], g = bgData[idx + 1], b = bgData[idx + 2];
+      // 亮度差 = RGB 三通道差异之和
+      const diff = Math.abs(r - prevR) + Math.abs(g - prevG) + Math.abs(b - prevR);
+      if (diff > maxDiff && x > bgWidth * 0.25 && x < bgWidth * 0.8) {
+        maxDiff = diff;
+        gapX = x;
+      }
+      prevR = r; prevG = g;
+    }
+
+    // 换算到实际页面坐标
+    const wrapperRect = wrapperEl.getBoundingClientRect();
+    const scale = wrapperRect.width / bgWidth;
+    return Math.round(gapX * scale);
+  }, { wrapper, bg });
+
+  if (distance && distance > 10) return distance;
+
+  // fallback: 尝试找滑块按钮当前偏移（有些验证码会先显示缺口位置）
+  try {
+    const sliderBox = await page.locator(slider).first().boundingBox();
+    const wrapperBox = await page.locator(wrapper).first().boundingBox();
+    if (sliderBox && wrapperBox) {
+      return Math.round(wrapperBox.width * 0.55); // 默认 55% 处
+    }
+  } catch {}
+
+  return null;
 }
 
 /** 模拟人类滑动轨迹 */

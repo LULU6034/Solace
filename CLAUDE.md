@@ -30,26 +30,77 @@ npm run dev           # Vite + Electron 同时启动
 ```
 electron/
   main.cjs              — 主进程：宠物窗口、聊天窗口、托盘、IPC、窗口动画
-  preload.cjs           — contextBridge：openChat/closeChat/moveWindow/feedFile/...
+  preload.cjs           — contextBridge
+  ipc/                  — IPC handler（按功能域分组）
+    agent-ipc.cjs       — Agent Server 通信
+    voice-ipc.cjs       — 语音 TTS
+    netease-ipc.cjs     — 网易云音乐 API
+    server-ipc.cjs      — Node.js Server 桥接
+    llm-ipc.cjs         — LLM SDK 加载
+    battery-monitor.cjs — 电池监控
+server/
+  bootstrap.js          — Server 入口（由 Electron spawn）
+  index.js              — Hono HTTP + WebSocket 主文件
+  core/                 — Agent 核心循环
+    agent.js            — Agent 主循环
+    agent-manager.js    — Agent 生命周期管理
+    agent-router.js     — 路由分发
+    coordinator.js      — 多 Agent 协调
+    llm-client.js       — LLM API 客户端
+  memory/               — 统一记忆系统
+    fact-store-sqlite.js — SQLite 事实存储
+    episodic.js         — 情景记忆
+    short-term.js       — 短期缓冲
+    medium-term.js      — 中期记忆
+    vector-search.js    — 向量检索
+    retrieval.js        — 多路检索
+    inject.js           — 上下文注入
+  personality/          — 性格系统
+    schema.js           — OCEAN 数据结构
+    injector.js         — 性格注入 Prompt
+    emotion-trend.js    — 情绪趋势
+  knowledge/            — 知识库（RAG）
+    indexer.js, retriever.js, chunker.js, embedder.js, graph.js ...
+  tools/                — Agent 工具集
+    agent-tools.js, web-tools.js, file-tools.js, music-tools.js ...
+  voice/                — 语音
+    voice-session.js, tts.js, streaming-tts.js
+  prompts/              — 提示词模板
+  planner/              — 规划模块
+  workflows/            — 多 Agent 编排
+  routes/               — 事件路由
+  observability/        — 日志 + 成本追踪
+  config/               — 配置管理
+  lib/                  — 纯工具函数
 src/
-  main.js               — 聊天窗口入口，挂载 App.vue
-  pet-main.js            — 宠物窗口入口，挂载 PetApp.vue
-  App.vue                — 聊天主界面（标签页、消息区、输入区、设置）
-  PetApp.vue             — Canvas 动画循环 + 闲逛 + 拖放喂食 + 敏感文件过滤
-  components/
-    SettingsPanel.vue    — 设置面板（API Key、模型选择、角色切换）
-  lib/llm/
-    LLMProvider.ts        — LLM 统一接口
-    adapters/             — Claude / DeepSeek / OpenAI 适配器
-  pets/
-    index.js              — 角色注册表（5 个角色）
-    glassesDog.js         — 镜框小狗像素精灵
-    clawd.js              — Clawd 龙虾像素精灵
-    blackCat.js           — 小黑猫像素精灵
-    yellowBird.js         — 小黄鸟像素精灵
-    fox.js                — 小狐狸像素精灵
-  store/                  — Zustand store
-  styles/                 — CSS
+  main.js               — 聊天窗口入口
+  App.vue                — 聊天主界面
+  PetApp.vue             — Canvas 动画循环 + 闲逛 + 拖放喂食
+  pages/                 — 页面组件（按功能域分组）
+    chat/                — ChatPage, GroupChatPage, AgentSteps
+    voice/               — VoiceChat, VoiceClonePanel
+    music/               — MusicPanel, MusicPlayer, TopMiniPlayer
+    memory/              — MemoryPanel, MemoryGraph, MemoryGraphPage, ConflictDialog
+    knowledge/           — KnowledgePage
+    roles/               — RolesPage
+    personality/         — PersonalityPanel
+    settings/            — SettingsPanel, PrivacyPanel
+  composables/           — Vue composables
+    useVoice.js, useAmbientSound.js, useAnimOrchestrator.js ...
+  llm/                   — LLM 适配器
+    LLMProvider.ts, types.ts, adapters/
+  pets/                  — 角色注册表（5 个角色）
+  animations/            — GSAP 动画
+  store/                 — Zustand store
+  styles/                — CSS
+  assets/                — 静态资源
+data/                    — 运行时数据（gitignore）
+  users/{user_id}/       — 用户隔离数据
+config/                  — 全局配置
+scripts/                 — 运维脚本
+docs/                    — 设计文档
+tests/                   — 测试
+evaluation/              — 评估系统
 ```
 
 ## 已完成

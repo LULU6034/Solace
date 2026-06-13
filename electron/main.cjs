@@ -129,17 +129,17 @@ ipcMain.handle('read-file-content', async (_event, filePath) => {
 });
 
 // LLM IPC（原生 Node.js 加载 SDK，避免浏览器端 CJS 打包问题）
-require('./llm-ipc.cjs');
+require('./ipc/llm-ipc.cjs');
 
 // Voice IPC（语音会话、TTS、CosyVoice 通信）
-const { registerVoiceIPC, setupVoiceEventForwarding, setApiKeyAndRetry } = require('./voice-ipc.cjs');
+const { registerVoiceIPC, setupVoiceEventForwarding, setApiKeyAndRetry } = require('./ipc/voice-ipc.cjs');
 
 // Netease Music IPC（网易云音乐 API）
-const { registerNeteaseIPC } = require('./netease-ipc.cjs');
+const { registerNeteaseIPC } = require('./ipc/netease-ipc.cjs');
 registerNeteaseIPC();
 
 // Agent IPC（Node.js Agent Server 通信）
-const { registerAgentIPC, stopAgent, getBridge } = require('./agent-ipc.cjs');
+const { registerAgentIPC, stopAgent, getBridge } = require('./ipc/agent-ipc.cjs');
 registerAgentIPC();
 
 // 将 agent bridge 暴露给 voice-ipc 使用

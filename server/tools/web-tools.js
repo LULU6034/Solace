@@ -4,7 +4,7 @@
  * web_search: DuckDuckGo (主要) → 降级方案
  * web_fetch: HTTP GET + HTML→text 转换
  */
-import { createModuleLogger } from '../debug-log.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 
 const log = createModuleLogger('web-tools');
 

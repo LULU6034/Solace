@@ -5,7 +5,7 @@
  * 基于 HybridRetriever 的混合检索（BM25 + 向量语义），
  * 通过 KBSchema 数据库查找摘要内容和来源文件信息。
  */
-import { createModuleLogger } from '../debug-log.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 import { getRetriever, getSchema } from './tools-shared.js';
 
 const log = createModuleLogger('kb-tools');

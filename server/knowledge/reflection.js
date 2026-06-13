@@ -13,7 +13,7 @@
  * 依赖 kb-schema.js 的 KBSchema 和 kb-graph.js 的 KnowledgeGraph。
  * LLM 配置可选——核心检测逻辑不依赖 LLM，仅在需要语义级判断时使用。
  */
-import { createModuleLogger } from '../debug-log.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 import { KBSchema } from './schema.js';
 import { KnowledgeGraph } from './graph.js';
 

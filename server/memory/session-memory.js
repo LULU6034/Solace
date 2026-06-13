@@ -7,7 +7,7 @@
  *  - 对话历史是所有 Agent 天然共享的
  *  - 私有记忆各 Agent 独立（FactStore）
  */
-import { createModuleLogger } from '../debug-log.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 
 const log = createModuleLogger('session-memory');
 

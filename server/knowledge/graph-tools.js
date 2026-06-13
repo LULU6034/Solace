@@ -5,7 +5,7 @@
  * 基于 KnowledgeGraph 的知识三元组操作，
  * 让 Agent 能够记录和查询实体间的关系。
  */
-import { createModuleLogger } from '../debug-log.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 import { KnowledgeGraph } from './graph.js';
 
 const log = createModuleLogger('kb-graph-tools');

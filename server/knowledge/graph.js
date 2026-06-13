@@ -8,7 +8,7 @@
  * 依赖 kb-schema.js 的 KBSchema 实例管理数据库连接。
  */
 import { KBSchema } from './schema.js';
-import { createModuleLogger } from '../debug-log.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 
 const log = createModuleLogger('kb-graph');
 

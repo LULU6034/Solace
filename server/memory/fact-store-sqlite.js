@@ -11,7 +11,7 @@
  */
 import path from 'node:path';
 import fs from 'node:fs';
-import { createModuleLogger } from '../debug-log.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 
 const log = createModuleLogger('fact-store');
 

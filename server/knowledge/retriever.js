@@ -13,10 +13,10 @@
  *   - search 返回统一格式，包含各检索器的原始排名和得分
  */
 
-import { IncrementalBM25 } from './kb-bm25.js';
-import { KBVectorStore } from './kb-vector.js';
-import { KBEmbedder } from './kb-embedder.js';
-import { createModuleLogger } from '../debug-log.js';
+import { IncrementalBM25 } from './bm25.js';
+import { KBVectorStore } from './vector.js';
+import { KBEmbedder } from './embedder.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 
 const log = createModuleLogger('kb-retriever');
 

@@ -13,7 +13,7 @@
  *   - toJSON/fromJSON 使用纯对象格式，支持文件持久化
  */
 
-import { createModuleLogger } from '../debug-log.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 
 const log = createModuleLogger('kb-bm25');
 

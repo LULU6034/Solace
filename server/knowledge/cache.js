@@ -4,7 +4,7 @@
  * 基于 SQLite query_cache 表提供查询结果的去重缓存，
  * 支持 TTL 过期、命中计数和缓存清理。
  */
-import { createModuleLogger } from '../debug-log.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 
 const log = createModuleLogger('kb-cache');
 

@@ -13,13 +13,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { createModuleLogger } from '../debug-log.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 import { KBSchema } from './schema.js';
-import { KBDocParser } from './kb-parser.js';
-import { KBChunker } from './kb-chunker.js';
-import { KBEmbedder } from './kb-embedder.js';
+import { KBDocParser } from './parser.js';
+import { KBChunker } from './chunker.js';
+import { KBEmbedder } from './embedder.js';
 import { HybridRetriever } from './retriever.js';
-import { KBConfig } from './kb-config.js';
+import { KBConfig } from './config.js';
 
 const log = createModuleLogger('kb-indexer');
 

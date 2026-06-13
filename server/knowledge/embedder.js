@@ -12,7 +12,7 @@
  *   - 复用 vector-search.js 已验证的 Xenova pipeline 加载模式
  */
 
-import { createModuleLogger } from '../debug-log.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 
 const log = createModuleLogger('kb-embedder');
 

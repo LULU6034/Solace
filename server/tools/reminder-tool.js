@@ -5,7 +5,7 @@
  * cancel_reminder   — 取消已设置的提醒
  * list_reminders    — 列出所有活跃提醒
  */
-import { createModuleLogger } from '../debug-log.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 
 const log = createModuleLogger('reminder');
 

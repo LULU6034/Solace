@@ -5,8 +5,8 @@
  * - 并行多图分析，缓存，图片预处理
  * - 安全扫描（敏感信息检测）
  */
-import { createLLM } from '../../core/llm-client.js';
-import { createModuleLogger } from '../debug-log.js';
+import { createLLM } from '../core/llm-client.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 
 const log = createModuleLogger('vision');
 

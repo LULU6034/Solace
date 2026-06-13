@@ -6,8 +6,8 @@
  * - 语义层: 轻量 LLM 调用，上下文感知
  * - 输出: { level: "red"|"yellow"|"green", reason, evidence }
  */
-import { createLLM } from '../../core/llm-client.js';
-import { createModuleLogger } from '../debug-log.js';
+import { createLLM } from '../core/llm-client.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 
 const log = createModuleLogger('security-gate');
 

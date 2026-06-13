@@ -6,7 +6,7 @@
  */
 import { HybridRetriever } from './retriever.js';
 import { KBSchema } from './schema.js';
-import { createModuleLogger } from '../debug-log.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 
 const log = createModuleLogger('kb-shared');
 

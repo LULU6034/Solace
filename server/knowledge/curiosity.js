@@ -8,7 +8,7 @@
  * 可选依赖 kb-graph.js (KnowledgeGraph) 辅助实体查询。
  */
 
-import { createModuleLogger } from '../debug-log.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 
 const log = createModuleLogger('kb-curiosity');
 

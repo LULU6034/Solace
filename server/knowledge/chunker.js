@@ -7,7 +7,7 @@
  * 确保上下文在跨块检索时不丢失。
  */
 
-import { createModuleLogger } from '../debug-log.js';
+import { createModuleLogger } from '../lib/debug-log.js';
 
 const log = createModuleLogger('kb-chunker');
 

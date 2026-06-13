@@ -382,65 +382,86 @@ async function _calcSlideDistance(page, cfg) {
   return null;
 }
 
-/** 模拟人类滑动轨迹（高级伪装） */
+/** CDP 原生鼠标事件（isTrusted=true，绕过检测） */
+async function _cdpMouse(session, type, x, y) {
+  await session.send('Input.dispatchMouseEvent', {
+    type, x: Math.round(x), y: Math.round(y),
+    button: 'left', clickCount: 1,
+  });
+}
+
+/** CDP 触摸事件（移动端验证码需要） */
+async function _cdpTouch(session, type, x, y) {
+  await session.send('Input.dispatchTouchEvent', {
+    type,
+    touchPoints: type === 'touchEnd' ? [] : [{ x: Math.round(x), y: Math.round(y) }],
+  });
+}
+
+/** 模拟人类滑动（CDP 原生事件 + 真实轨迹） */
 async function _humanSlide(page, startX, startY, distance) {
-  // 1. 初始犹豫（200-500ms）
+  const cdp = await page.context().newCDPSession(page);
+
+  // 1. 初始犹豫
   await new Promise(r => setTimeout(r, 200 + Math.random() * 300));
 
-  // 2. 移动到滑块
-  await page.mouse.move(startX, startY, { steps: 3 });
-  await new Promise(r => setTimeout(r, 50 + Math.random() * 80));
+  // 2. 鼠标移入 → 按下
+  await _cdpMouse(cdp, 'mouseMoved', startX, startY);
+  await new Promise(r => setTimeout(r, 80 + Math.random() * 100));
+  await _cdpMouse(cdp, 'mousePressed', startX, startY);
+  await _cdpTouch(cdp, 'touchStart', startX, startY);
 
-  // 3. 按下
-  await page.mouse.down();
-
-  // 4. 生成轨迹：快→慢→微调→停
-  const totalSteps = 50 + Math.floor(Math.random() * 20);
-  const points = [];
+  // 3. 轨迹：前进后退 + 微颤
+  const steps = 80 + Math.floor(Math.random() * 30);
   let pos = 0;
+  let lastX = startX, lastY = startY;
 
-  for (let i = 0; i < totalSteps; i++) {
-    const t = i / totalSteps;
-    // 真实人类：先快后慢，最后1/5会反复微调
+  for (let i = 0; i < steps; i++) {
+    const t = i / steps;
+
+    // 三段变速
     let speed;
-    if (t < 0.3) {
-      speed = 0.6 + Math.random() * 0.4; // 快速起步
-    } else if (t < 0.8) {
-      speed = 0.3 + Math.random() * 0.3; // 匀速
-    } else {
-      speed = 0.05 + Math.random() * 0.15; // 极慢微调
-    }
-    pos += (distance / totalSteps) * speed * 2.5;
+    if (t < 0.25) speed = 0.8 + Math.random() * 0.4;       // 快
+    else if (t < 0.75) speed = 0.3 + Math.random() * 0.3;   // 中
+    else speed = 0.03 + Math.random() * 0.12;               // 极慢
+
+    pos += (distance / steps) * speed * 2.5;
     pos = Math.min(pos, distance);
 
-    // 偶尔停顿（5%概率）
-    if (Math.random() < 0.05) {
-      points.push({ x: startX + pos, y: startY + (Math.random() - 0.5) * 2, delay: 30 + Math.random() * 40 });
+    // 正弦微颤 + 随机抖动
+    const wobble = Math.sin(i * 0.6) * 1.5;
+    const jitter = (Math.random() - 0.5) * 2;
+    const x = startX + pos + jitter;
+    const y = startY + wobble + (Math.random() - 0.5) * 2;
+
+    // 10% 概率后退（犹豫特征）
+    if (i > steps * 0.3 && i < steps * 0.9 && Math.random() < 0.1) {
+      const backX = x - (5 + Math.random() * 10);
+      await _cdpMouse(cdp, 'mouseMoved', backX, y);
+      await _cdpTouch(cdp, 'touchMove', backX, y);
+      await new Promise(r => setTimeout(r, 15 + Math.random() * 25));
     }
 
-    points.push({
-      x: startX + pos + (Math.random() - 0.5) * 3,  // ±1.5px 水平抖动
-      y: startY + (Math.random() - 0.5) * 4,         // ±2px 垂直抖动
-      delay: 5 + Math.random() * 10,                  // 5-15ms
-    });
+    await _cdpMouse(cdp, 'mouseMoved', x, y);
+    await _cdpTouch(cdp, 'touchMove', x, y);
+    lastX = x; lastY = y;
+    await new Promise(r => setTimeout(r, 4 + Math.random() * 8));
   }
 
-  // 5. 执行轨迹
-  for (const p of points) {
-    await page.mouse.move(p.x, p.y, { steps: 2 });
-    await new Promise(r => setTimeout(r, p.delay));
-  }
+  // 4. 末尾精调：超过一点点再退回
+  const overshoot = startX + distance + (1 + Math.random() * 3);
+  await _cdpMouse(cdp, 'mouseMoved', overshoot, lastY);
+  await _cdpTouch(cdp, 'touchMove', overshoot, lastY);
+  await new Promise(r => setTimeout(r, 30 + Math.random() * 30));
 
-  // 6. 最后的微调：超过再退回（人类特征）
-  if (Math.random() < 0.6) {
-    await page.mouse.move(startX + distance + 1, startY, { steps: 2 });
-    await new Promise(r => setTimeout(r, 30 + Math.random() * 20));
-    await page.mouse.move(startX + distance, startY, { steps: 2 });
-    await new Promise(r => setTimeout(r, 50 + Math.random() * 30));
-  }
+  const finalX = startX + distance;
+  await _cdpMouse(cdp, 'mouseMoved', finalX, lastY);
+  await _cdpTouch(cdp, 'touchMove', finalX, lastY);
 
-  // 7. 停顿 + 松开（人类会看一眼才放手）
-  await new Promise(r => setTimeout(r, 80 + Math.random() * 120));
-  await page.mouse.up();
+  // 5. 松手前瞥一眼
+  await new Promise(r => setTimeout(r, 100 + Math.random() * 150));
+
+  await _cdpMouse(cdp, 'mouseReleased', finalX, lastY);
+  await _cdpTouch(cdp, 'touchEnd', finalX, lastY);
   await new Promise(r => setTimeout(r, 50 + Math.random() * 100));
 }

@@ -1,0 +1,30 @@
+# 默认配置
+# 由 server/config/loader.js 加载，环境变量覆盖
+
+server:
+  port: 19876
+  host: "127.0.0.1"
+
+llm:
+  provider: "deepseek"
+  model: "deepseek-chat"
+  maxTokens: 4096
+  temperature: 0.7
+
+memory:
+  maxFacts: 10000
+  vectorDimensions: 384
+  retrievalTopK: 10
+
+knowledge:
+  watchDir: "./data/knowledge_base"
+  chunkSize: 512
+  chunkOverlap: 64
+
+voice:
+  ttsEngine: "minimax"  # minimax | cosyvoice
+  speechModel: "speech-2.8-turbo"
+
+personality:
+  # 见 personality/ocean-baseline.yaml
+  updateInterval: 10  # 每 N 轮对话触发一次性格演化

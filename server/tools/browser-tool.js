@@ -242,11 +242,10 @@ async function _waitForCaptcha(page) {
         const wrapperBox = await wrapper.boundingBox();
         const maxDist = wrapperBox ? Math.round(wrapperBox.width - box.width - 5) : 300;
         log.log(`滑块范围: 0-${maxDist}px, 估算: ${distance}px`);
-        // 15px 步长扫描（之前30px总差一点点）
+        // 递增扫描：先往上加，再往下减（避免来回跳）
         const offsets = [0];
-        for (let step = 15; step <= maxDist; step += 15) {
-          offsets.push(step, -step);
-        }
+        for (let step = 15; step <= maxDist; step += 15) offsets.push(step);
+        for (let step = 15; step <= distance; step += 15) offsets.push(-step);
         let passed = false;
 
         for (const off of offsets) {

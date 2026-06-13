@@ -165,9 +165,9 @@ function _detectSearchUrl(q) {
     case '京东': return `https://search.jd.com/Search?keyword=${enc}`;
     case '淘宝': return `https://s.taobao.com/search?q=${enc}`;
     case 'B站': return `https://search.bilibili.com/all?keyword=${enc}`;
-    case '优酷': return `https://so.youku.com/search_video/q_${enc}`;
-    case '爱奇艺': return `https://so.iqiyi.com/so/q_${enc}`;
-    case '腾讯视频': return `https://v.qq.com/x/search/?q=${enc}`;
+    case '优酷': return `https://www.baidu.com/s?wd=site:youku.com+${enc}`;
+    case '爱奇艺': return `https://www.baidu.com/s?wd=site:iqiyi.com+${enc}`;
+    case '腾讯视频': return `https://www.baidu.com/s?wd=site:v.qq.com+${enc}`;
     case '抖音': return `https://www.douyin.com/search/${enc}`;
     default: return `https://www.baidu.com/s?wd=${encodeURIComponent(q)}`;
   }

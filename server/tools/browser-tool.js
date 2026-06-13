@@ -30,10 +30,10 @@ export const browseTool = {
     properties: {
       action: {
         type: 'string',
-        enum: ['navigate', 'search'],
-        description: 'navigate=打开URL, search=搜索关键词',
+        enum: ['navigate', 'search', 'click', 'press', 'fullscreen'],
+        description: 'navigate=打开URL, search=搜索, click=点击播放/按钮, press=按键(f/Esc/空格), fullscreen=全屏',
       },
-      query: { type: 'string', description: 'URL(搭配navigate)或搜索词(搭配search)' },
+      query: { type: 'string', description: 'URL/搜索词/选择器/按键名' },
     },
     required: ['action', 'query'],
   },
@@ -49,10 +49,65 @@ export const browseTool = {
         targetUrl = _detectSearchUrl(q);
       }
 
-      await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-      if (action === 'search') await new Promise(r => setTimeout(r, 1500));
-      await _dismissAds(page);
-      await _waitForCaptcha(page);
+      // ═══ navigate / search: 打开页面 ═══
+      if (action === 'navigate' || action === 'search') {
+        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+        if (action === 'search') await new Promise(r => setTimeout(r, 1500));
+        await _dismissAds(page);
+        await _waitForCaptcha(page);
+      }
+
+      // ═══ click: 点击元素 ═══
+      if (action === 'click') {
+        // 查找并点击（支持选择器和文本匹配）
+        const q = query || '';
+        let clicked = false;
+        const clickTargets = [
+          q,                                                      // 直接当选择器
+          `button:has-text("${q}")`,                              // 按钮文本
+          `a:has-text("${q}")`,                                   // 链接文本
+          '.play-btn', '.video-play', '[class*="play"]',          // 播放按钮
+          '.player-start', '.prism-play-btn',                     // 优酷播放器
+          '.txp_btn_play',                                        // 腾讯视频播放器
+          '.iqp-play-btn',                                        // 爱奇艺播放器
+          'video', 'iframe',                                      // 原生播放器
+        ];
+        for (const sel of clickTargets) {
+          try {
+            const el = page.locator(sel).first();
+            if (await el.isVisible({ timeout: 500 }).catch(() => false)) {
+              await el.click({ timeout: 3000 }).catch(() => {});
+              clicked = true;
+              log.log(`已点击: ${sel}`);
+              break;
+            }
+          } catch {}
+        }
+        if (!clicked) return '未找到可点击的元素';
+        await new Promise(r => setTimeout(r, 1000));
+      }
+
+      // ═══ press: 按键 ═══
+      if (action === 'press') {
+        const key = query || 'f';  // 默认 f=全屏
+        await page.keyboard.press(key);
+        log.log(`已按键: ${key}`);
+        await new Promise(r => setTimeout(r, 500));
+      }
+
+      // ═══ fullscreen: 全屏 ═══
+      if (action === 'fullscreen') {
+        await page.keyboard.press('f');
+        // 备选：点击全屏按钮
+        try {
+          const fsBtn = page.locator('.bpx-player-ctrl-full, .prism-fullscreen, .txp_btn_fullscreen, .iqp-fullscreen, [class*="fullscreen"]').first();
+          if (await fsBtn.isVisible({ timeout: 500 }).catch(() => false)) {
+            await fsBtn.click({ timeout: 1000 }).catch(() => {});
+          }
+        } catch {}
+        log.log('已全屏');
+        await new Promise(r => setTimeout(r, 500));
+      }
 
       const title = await page.title();
       const text = await page.evaluate(() => document.body.innerText);

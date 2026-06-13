@@ -29,6 +29,7 @@ const _agentTools = getAgentTools();
 export function getAllTools() {
   return [
     webSearch,
+    ...(isBrowserReady() ? [browseTool] : []),
     webFetch,
     readFile,
     writeFile,
@@ -46,7 +47,6 @@ export function getAllTools() {
     ...kbTools,
     ...kbGraphTools,
     ...reminderTools,
-    ...(isBrowserReady() ? [browseTool] : []),
   ];
 }
 

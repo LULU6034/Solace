@@ -20,79 +20,36 @@ const _pendingQueue = [];
 
 export const browseTool = {
   name: 'browse',
-  description:
-    '操控浏览器完成网页任务。当用户要求浏览网站、搜索商品、查看页面内容时，必须使用此工具。' +
-    '适用场景：打开网页、搜索、电商/视频/动态页面浏览。',
+  description: '打开浏览器搜索或浏览网页。像 web_search 一样用，但用真实浏览器渲染页面。',
   parameters: {
     type: 'object',
     properties: {
-      action: {
-        type: 'string',
-        enum: ['navigate', 'search', 'extract'],
-        description: '操作类型: navigate=打开网页, search=在搜索引擎搜索, extract=提取页面内容',
-      },
-      url: { type: 'string', description: '要打开的 URL' },
-      query: { type: 'string', description: '搜索关键词' },
-      site: {
-        type: 'string',
-        description: '搜索站点: baidu/bing/google/jd/taobao/bilibili，默认 baidu',
-        default: 'baidu',
-      },
+      query: { type: 'string', description: '搜索关键词或 URL' },
     },
-    required: ['action'],
+    required: ['query'],
   },
-  async invoke({ action, url, query, site = 'baidu' }) {
+  async invoke({ query }) {
     const page = await _acquirePage();
-
     try {
-      if (action === 'navigate' && url) {
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
-        const title = await page.title();
-        const text = await page.evaluate(() => document.body.innerText);
-        return JSON.stringify({
-          success: true,
-          title,
-          url: page.url(),
-          text: text.slice(0, 3000).replace(/\s+/g, ' ').trim(),
-        });
-      }
+      const q = String(query || '').trim();
+      // 如果是完整 URL，直接打开
+      const isUrl = /^https?:\/\//i.test(q);
+      const targetUrl = isUrl
+        ? q
+        : `https://www.baidu.com/s?wd=${encodeURIComponent(q)}`;
 
-      if (action === 'search' && query) {
-        const urls = {
-          baidu: `https://www.baidu.com/s?wd=${encodeURIComponent(query)}`,
-          bing: `https://www.bing.com/search?q=${encodeURIComponent(query)}`,
-          google: `https://www.google.com/search?q=${encodeURIComponent(query)}`,
-          jd: `https://search.jd.com/Search?keyword=${encodeURIComponent(query)}`,
-          taobao: `https://s.taobao.com/search?q=${encodeURIComponent(query)}`,
-          bilibili: `https://search.bilibili.com/all?keyword=${encodeURIComponent(query)}`,
-        };
-        const searchUrl = urls[site] || urls.baidu;
-        await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-        await new Promise(r => setTimeout(r, 2000)); // 等待搜索结果渲染
-        const title = await page.title();
-        const text = await page.evaluate(() => document.body.innerText);
-        return JSON.stringify({
-          success: true,
-          title,
-          query,
-          site,
-          url: page.url(),
-          text: text.slice(0, 3000).replace(/\s+/g, ' ').trim(),
-        });
-      }
+      await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+      if (!isUrl) await new Promise(r => setTimeout(r, 1500));
 
-      if (action === 'extract') {
-        const title = await page.title();
-        const text = await page.evaluate(() => document.body.innerText);
-        return JSON.stringify({
-          success: true,
-          title,
-          url: page.url(),
-          text: text.slice(0, 5000).replace(/\s+/g, ' ').trim(),
-        });
-      }
-
-      return '请指定 action (navigate/search/extract) 和对应参数';
+      const title = await page.title();
+      const text = await page.evaluate(() => document.body.innerText);
+      log.log(`browse: "${q.slice(0, 30)}" → ${title}`);
+      return JSON.stringify({
+        success: true,
+        title,
+        url: page.url(),
+        text: text.slice(0, 3000).replace(/\s+/g, ' ').trim(),
+      });
     } catch (err) {
       log.error('browse 失败:', err.message);
       return `浏览失败: ${err.message}`;

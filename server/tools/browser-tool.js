@@ -59,32 +59,48 @@ export const browseTool = {
 
       // ═══ click: 点击元素 ═══
       if (action === 'click') {
-        // 查找并点击（支持选择器和文本匹配）
         const q = query || '';
         let clicked = false;
+        // 两步走：先点视频封面进播放页，再点播放按钮
         const clickTargets = [
-          q,                                                      // 直接当选择器
-          `button:has-text("${q}")`,                              // 按钮文本
-          `a:has-text("${q}")`,                                   // 链接文本
-          '.play-btn', '.video-play', '[class*="play"]',          // 播放按钮
-          '.player-start', '.prism-play-btn',                     // 优酷播放器
-          '.txp_btn_play',                                        // 腾讯视频播放器
-          '.iqp-play-btn',                                        // 爱奇艺播放器
-          'video', 'iframe',                                      // 原生播放器
+          // 1. 搜索结果中的第一个视频（优酷/爱奇艺/腾讯/B站通用）
+          { sel: q || 'a[href*="video"] img, .v-link img, .yk-card img, .result-item img, .video-item img, .search-item img', label: '搜索结果第一项' },
+          // 2. 视频标题链接
+          { sel: q || '.v-link a, .yk-title a, .video-title a, .card-title a, h3 a', label: '视频标题链接' },
+          // 3. 播放按钮
+          { sel: q || '.player-start, .prism-play-btn, .play-btn, [class*="play-btn"], .start-play, .ykp-play-btn', label: '播放按钮' },
+          { sel: q || '.txp_btn_play, .iqp-play-btn, .bpx-player-ctrl-play, .prism-big-play-btn', label: '视频站播放器' },
+          // 4. 原生 video 元素
+          { sel: 'video', label: '原生播放器' },
         ];
-        for (const sel of clickTargets) {
+        for (const { sel, label } of clickTargets) {
           try {
             const el = page.locator(sel).first();
             if (await el.isVisible({ timeout: 500 }).catch(() => false)) {
+              // 先 hover 再 click（有些按钮需要 hover 才显示）
+              await el.hover({ timeout: 500 }).catch(() => {});
+              await new Promise(r => setTimeout(r, 100));
               await el.click({ timeout: 3000 }).catch(() => {});
               clicked = true;
-              log.log(`已点击: ${sel}`);
+              log.log(`已点击: ${label}`);
               break;
             }
           } catch {}
         }
-        if (!clicked) return '未找到可点击的元素';
-        await new Promise(r => setTimeout(r, 1000));
+        if (!clicked) return JSON.stringify({ error: '未找到可点击的元素', url: page.url() });
+        await new Promise(r => setTimeout(r, 2000)); // 等页面加载/播放器出现
+        // 如果是进到视频页，再点一次播放（可能还没点中）
+        for (const sel of ['.prism-play-btn', '.player-start', '.play-btn', 'video']) {
+          try {
+            const el = page.locator(sel).first();
+            if (await el.isVisible({ timeout: 500 }).catch(() => false)) {
+              await el.click({ timeout: 2000 }).catch(() => {});
+              log.log('已点播放');
+              break;
+            }
+          } catch {}
+        }
+        await new Promise(r => setTimeout(r, 2000));
       }
 
       // ═══ type: 找搜索框 → 输入 → 回车 ═══

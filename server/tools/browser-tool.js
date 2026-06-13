@@ -232,22 +232,37 @@ async function _waitForCaptcha(page) {
           await _waitManualCaptcha(page);
           return;
         }
-        log.log(`滑块距离: ${distance}px`);
+        log.log(`估算滑块距离: ${distance}px`);
 
-        // 2. 模拟人类滑动
+        // 2. 多距离重试（AI识别不准就暴力试）
         const box = await slider.boundingBox();
         if (!box) continue;
         const startX = box.x + box.width / 2;
         const startY = box.y + box.height / 2;
-        await _humanSlide(page, startX, startY, distance);
+        const wrapperBox = await wrapper.boundingBox();
+        const maxDist = wrapperBox ? wrapperBox.width - box.width : 300;
+        // 在估算距离 ±30px 范围内，从远到近尝试
+        const offsets = [0, 20, -20, 40, -40, 15, -15, 30, -30, 10, -10];
+        let passed = false;
 
-        // 3. 等验证结果
-        await new Promise(r => setTimeout(r, 1500));
-        if (!(await wrapper.isVisible({ timeout: 500 }).catch(() => false))) {
+        for (const off of offsets) {
+          const tryDist = Math.max(15, Math.min(maxDist, distance + off));
+          await _humanSlide(page, startX, startY, tryDist);
+          await new Promise(r => setTimeout(r, 800));
+          // 检查是否通过
+          const stillVisible = await wrapper.isVisible({ timeout: 300 }).catch(() => true);
+          if (!stillVisible) { passed = true; break; }
+          // 刷新按钮（点击让滑块归位）
+          await slider.click({ timeout: 500 }).catch(() => {});
+          await new Promise(r => setTimeout(r, 300));
+          log.log(`重试: ${tryDist}px (offset ${off})`);
+        }
+
+        if (passed) {
           log.log('验证码通过！');
           return;
         }
-        log.warn('验证码未通过，降级等待手动完成');
+        log.warn('自动过滑块失败，降级等待手动完成');
         await _waitManualCaptcha(page);
         return;
       } catch {}

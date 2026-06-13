@@ -110,7 +110,7 @@ export const webSearch = {
 
 export const webFetch = {
   name: 'web_fetch',
-  description: '获取网页内容。参数 url: 网页地址',
+  description: '获取纯文本/静态内容（仅限文章、文档、API 返回的文本）。不要用于电商、视频、社交网站——那些必须用 browse 工具打开浏览器渲染。',
   parameters: {
     type: 'object',
     properties: {

@@ -6,7 +6,7 @@
  * 让 Agent 能够记录和查询实体间的关系。
  */
 import { createModuleLogger } from '../debug-log.js';
-import { KnowledgeGraph } from './kb-graph.js';
+import { KnowledgeGraph } from './graph.js';
 
 const log = createModuleLogger('kb-graph-tools');
 

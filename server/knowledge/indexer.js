@@ -14,11 +14,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { createModuleLogger } from '../debug-log.js';
-import { KBSchema } from './kb-schema.js';
+import { KBSchema } from './schema.js';
 import { KBDocParser } from './kb-parser.js';
 import { KBChunker } from './kb-chunker.js';
 import { KBEmbedder } from './kb-embedder.js';
-import { HybridRetriever } from './kb-retriever.js';
+import { HybridRetriever } from './retriever.js';
 import { KBConfig } from './kb-config.js';
 
 const log = createModuleLogger('kb-indexer');

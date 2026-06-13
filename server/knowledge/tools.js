@@ -6,7 +6,7 @@
  * 通过 KBSchema 数据库查找摘要内容和来源文件信息。
  */
 import { createModuleLogger } from '../debug-log.js';
-import { getRetriever, getSchema } from './kb-tools-shared.js';
+import { getRetriever, getSchema } from './tools-shared.js';
 
 const log = createModuleLogger('kb-tools');
 

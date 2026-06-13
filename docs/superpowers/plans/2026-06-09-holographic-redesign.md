@@ -19,7 +19,7 @@
 | `src/styles/tokens.css` | 修改 | 微调字体、补全动画变量 |
 | `src/styles/chat.css` | 大幅修改 | 玻璃窗、按钮、输入框、分段控件、开关等组件样式全面重写 |
 | `src/App.vue` | 小幅修改 | glass-window 类名、布局微调 |
-| `src/components/VoiceChat.vue` | 大幅修改 | 语音可视化替换为参考设计 |
+| `src/pages/voice/VoiceChat.vue` | 大幅修改 | 语音可视化替换为参考设计 |
 | `src/components/SidebarFrame.vue` | 大幅修改 | 播放器升级为参考设计风格 |
 
 ---
@@ -384,7 +384,7 @@ tokens.css body 的 `background` 从当前 radial-gradient 改为纯色 `var(--c
 ### Task 5: VoiceChat.vue — 语音可视化替换
 
 **Files:**
-- Modify: `src/components/VoiceChat.vue`
+- Modify: `src/pages/voice/VoiceChat.vue`
 
 #### 5.1 模板替换
 

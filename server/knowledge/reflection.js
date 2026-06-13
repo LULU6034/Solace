@@ -14,8 +14,8 @@
  * LLM 配置可选——核心检测逻辑不依赖 LLM，仅在需要语义级判断时使用。
  */
 import { createModuleLogger } from '../debug-log.js';
-import { KBSchema } from './kb-schema.js';
-import { KnowledgeGraph } from './kb-graph.js';
+import { KBSchema } from './schema.js';
+import { KnowledgeGraph } from './graph.js';
 
 const log = createModuleLogger('kb-reflection');
 
@@ -79,8 +79,8 @@ function _jaccardSimilarity(a, b) {
 export class ReflectionEngine {
   /**
    * @param {object} [opts]
-   * @param {import('./kb-schema.js').KBSchema}          [opts.schema]     KBSchema 实例
-   * @param {import('./kb-graph.js').KnowledgeGraph}     [opts.graph]      KnowledgeGraph 实例
+   * @param {import('./schema.js').KBSchema}          [opts.schema]     KBSchema 实例
+   * @param {import('./graph.js').KnowledgeGraph}     [opts.graph]      KnowledgeGraph 实例
    * @param {{ provider?: string, apiKey?: string, model?: string }} [opts.llmConfig] LLM 配置（可选）
    */
   constructor({ schema, graph, llmConfig } = {}) {

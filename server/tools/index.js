@@ -13,9 +13,9 @@ import { executeCommand } from './command-tool.js';
 import { remember, recall, forget, updateMemory, memoryStatus, setKG } from './memory-tools.js';
 export { setKG };
 import { getAgentTools } from './agent-tools.js';
-import { musicTools, setMusicMemoryStore } from '../music/tools.js';
-import { kbTools } from '../knowledge/kb-tools.js';
-import { kbGraphTools } from '../knowledge/kb-graph-tools.js';
+import { musicTools, setMusicMemoryStore } from './music-tools.js';
+import { kbTools } from '../knowledge/tools.js';
+import { kbGraphTools } from '../knowledge/graph-tools.js';
 import { reminderTools } from './reminder-tool.js';
 
 // Re-export from shared module to break circular dependency

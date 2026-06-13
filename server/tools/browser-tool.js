@@ -125,16 +125,14 @@ async function _doInit() {
     const { Stagehand } = await import('@browserbasehq/stagehand');
     _stagehand = new Stagehand({
       env: 'LOCAL',
-      headless: false,  // 可见模式：方便调试，确认后再切回 true
+      headless: false,  // 可见模式
       browserConfig: {
-        channel: 'msedge',
         userDataDir: path.join(os.tmpdir(), 'sonder-browser-data'),
         args: [
           '--remote-debugging-port=9223',
+          '--no-sandbox',
           '--disable-gpu',
           '--disable-dev-shm-usage',
-          '--no-first-run',
-          '--no-default-browser-check',
         ],
       },
       modelName: process.env.LLM_MODEL || 'deepseek-chat',

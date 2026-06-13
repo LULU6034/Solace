@@ -163,7 +163,7 @@ export const updateKBConfig = {
     required: ['key', 'value'],
   },
   async invoke({ key, value }) {
-    const { KBConfig } = await import('./kb-config.js');
+    const { KBConfig } = await import('./config.js');
     const cfg = new KBConfig();
     cfg.load();
     cfg.set(key, value);
@@ -172,7 +172,7 @@ export const updateKBConfig = {
     if (ok) {
       // 如果改了监控相关配置，重启 watcher
       if (key === 'watch.paths' || key.startsWith('watch.')) {
-        const { getActiveWatcher } = await import('./kb-watcher.js');
+        const { getActiveWatcher } = await import('./watcher.js');
         const watcher = getActiveWatcher();
         if (watcher) {
           try { await watcher.stop(); await watcher.start(); } catch {}
@@ -200,7 +200,7 @@ export const indexFileToKB = {
   async invoke({ file_path }) {
     try {
       // 懒加载 KBIndexer（避免循环依赖）
-      const { KBIndexer } = await import('./kb-indexer.js');
+      const { KBIndexer } = await import('./indexer.js');
       const indexer = new KBIndexer();
       await indexer.init();
       const result = await indexer.indexFile(file_path);
@@ -309,7 +309,7 @@ export const saveKnowledge = {
     // 尝试触发索引（失败不影响保存结果）
     let indexed = false;
     try {
-      const { KBIndexer } = await import('./kb-indexer.js');
+      const { KBIndexer } = await import('./indexer.js');
       const indexer = new KBIndexer();
       await indexer.init();
       const result = await indexer.indexFile(filePath);
@@ -374,7 +374,7 @@ export const showKBStatus = {
       // 读取配置中的监控路径
       let watchPaths = [];
       try {
-        const { KBConfig } = await import('./kb-config.js');
+        const { KBConfig } = await import('./config.js');
         const cfg = new KBConfig();
         cfg.load();
         watchPaths = cfg.get('watch.paths') || [];

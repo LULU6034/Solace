@@ -16,7 +16,7 @@ import { createModuleLogger } from '../lib/debug-log.js';
 
 const log = createModuleLogger('agent');
 
-const MAX_ANSWER_ROUNDS = 3;
+const MAX_ANSWER_ROUNDS = 5;
 function _thinkingPrompt(hasImages) {
   if (hasImages) {
     return `你是内部推理模块。用户发送了图片，视觉分析正在后台并行进行。
@@ -454,8 +454,11 @@ async function _runAnswerPhase({
       });
 
       // 如果第一轮有确认语（如"好的我来搜"），先推给前端播放
+      // 限制 150 字，避免 TTS 消耗过大
       if (roundNum === 1 && accumulatedContent?.trim()) {
-        sendEvent('speak', { content: accumulatedContent.trim(), round: roundNum });
+        const ack = accumulatedContent.trim();
+        const shortAck = ack.length > 150 ? ack.slice(0, 150).replace(/[^。！？.!?]*$/, '') + '。' : ack;
+        sendEvent('speak', { content: shortAck, round: roundNum });
       }
 
       for (const tc of fixedCalls) {

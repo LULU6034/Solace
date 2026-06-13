@@ -147,7 +147,7 @@ function getApiKeyFromConfig() {
     // ── TTS 合成 ──
     ipcMain.handle('voice-tts-synthesize', async (event, { text, emotion, voiceId, speed }) => {
       const wc = event.sender;
-      console.log('[voice-ipc] TTS:', text?.slice(0, 30));
+      console.log('[voice-ipc] TTS:', text?.slice(0, 30), '| len:', text?.length);
 
       // ═══ MiniMax 主路径 ═══
       const mmKey = getMiniMaxApiKey();

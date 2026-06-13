@@ -52,6 +52,7 @@ export const browseTool = {
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
       if (action === 'search') await new Promise(r => setTimeout(r, 1500));
       await _dismissAds(page);
+      await _waitForCaptcha(page);
 
       const title = await page.title();
       const text = await page.evaluate(() => document.body.innerText);
@@ -201,5 +202,54 @@ async function _dismissAds(page) {
     }
     // 按 Escape 关闭可能的模态框
     await page.keyboard.press('Escape').catch(() => {});
+  } catch {}
+}
+
+/** 检测滑块验证码，等待用户手动完成 */
+async function _waitForCaptcha(page) {
+  try {
+    // 滑块验证码常见特征
+    const captchaSelectors = [
+      '.nc_wrapper', '.nc-container',           // 阿里云滑块
+      '#captcha', '.captcha', '.sliderCaptcha',  // 通用
+      '.yidun_slider', '.yidun_modal',          // 网易易盾
+      '.geetest', '.gt_captcha',                // 极验
+      '.dx_captcha',                            // 顶象
+      '[id*="captcha"]', '[class*="captcha"]',
+      '.slider-verify', '.slide-verify',
+      '.x5sec',                                 // 优酷 x5sec
+    ];
+    let hasCaptcha = false;
+    for (const sel of captchaSelectors) {
+      try {
+        const el = page.locator(sel).first();
+        if (await el.isVisible({ timeout: 800 }).catch(() => false)) {
+          hasCaptcha = true;
+          break;
+        }
+      } catch {}
+    }
+    if (hasCaptcha) {
+      log.warn('检测到验证码，请在浏览器中手动完成（等待最多60秒）');
+      // 等待验证码消失（用户手动完成）
+      for (let i = 0; i < 120; i++) {
+        await new Promise(r => setTimeout(r, 500));
+        let stillThere = false;
+        for (const sel of captchaSelectors) {
+          try {
+            if (await page.locator(sel).first().isVisible({ timeout: 200 }).catch(() => false)) {
+              stillThere = true;
+              break;
+            }
+          } catch {}
+        }
+        if (!stillThere) {
+          log.log('验证码已完成');
+          await new Promise(r => setTimeout(r, 1000)); // 等页面恢复
+          return;
+        }
+      }
+      log.warn('验证码等待超时，继续执行');
+    }
   } catch {}
 }

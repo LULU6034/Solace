@@ -29,8 +29,10 @@ const CACHE_MAX = 20;
 export const browseTool = {
   name: 'browse',
   description:
-    '操控浏览器完成网页任务。用户说"帮我搜""查一查""打开网站看看""浏览"时使用。' +
-    '支持搜索、浏览页面、提取信息等操作。',
+    '【优先使用】操控真实浏览器完成网页任务。' +
+    '当用户要求浏览网站、搜索商品、查看动态页面内容时，必须使用此工具，而非 web_fetch。' +
+    '适用场景：电商网站(京东/淘宝)、视频网站(B站/YouTube)、需要登录的页面、动态加载的内容。' +
+    'web_fetch 只能拿静态 HTML，拿不到 JS 渲染后的真实内容——凡是 modern SPA 网站都用 browse。',
   parameters: {
     type: 'object',
     properties: {

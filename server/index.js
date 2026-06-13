@@ -1588,7 +1588,7 @@ async function initHub() {
   }
 
   // Inject agent tools
-  const { setAgentServices } = await import('./lib/tools/agent-tools.js');
+  const { setAgentServices } = await import('./tools/agent-tools.js');
   setAgentServices({ channelRouter, dmRouter, agentManager: _AgentManager });
 
   _Hub.start();
@@ -1643,7 +1643,7 @@ async function initHub() {
   });
 
   // Add agent tools to tool registry
-  const { getAgentTools } = await import('./lib/tools/agent-tools.js');
+  const { getAgentTools } = await import('./tools/agent-tools.js');
   const agentTools = getAgentTools();
   const { getAllTools: _origGetAll } = await import('./tools/index.js');
 

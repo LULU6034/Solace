@@ -33,6 +33,22 @@ function safeSend(wc, channel, data) {
   }
 }
 
+// WebSocket 请求超时包装
+function wsRequest(b, sendMsg, eventName, timeoutMs = 30_000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      doneSub(); errSub?.(); reject(new Error(`请求超时 (${timeoutMs / 1000}s): ${eventName}`));
+    }, timeoutMs);
+    const doneSub = b.on(eventName, (data) => {
+      clearTimeout(timer); doneSub(); errSub?.(); resolve(data?.data || data || {});
+    });
+    const errSub = b.on('error', (data) => {
+      clearTimeout(timer); errSub(); doneSub(); reject(new Error(data?.data?.content || data?.content || '服务端错误'));
+    });
+    b.send(sendMsg);
+  });
+}
+
 function registerAgentIPC() {
   const b = getBridge();
 
@@ -48,6 +64,7 @@ function registerAgentIPC() {
     tool_approval_request: 'agent-tool-approval-request',
     memory_updated: 'agent-memory-updated',
     memory_conflict: 'memory-conflict',
+    skills_changed: 'skills-changed',
     coordinator_start: 'coordinator-start',
     coordinator_info: 'coordinator-info',
     coordinator_done: 'coordinator-done',
@@ -73,7 +90,7 @@ function registerAgentIPC() {
   };
 
   // agent-chat: 单 Agent 对话
-  ipcMain.handle('agent-chat', async (event, { config, messages, conversationId }) => {
+  ipcMain.handle('agent-chat', async (event, { config, messages, conversationId, chatMode, activatedSkill }) => {
     const wc = event.sender;
     // 强制 DeepSeek（Claude 国内需 VPN，配置文件可能有旧值缓存）
     if (config.provider === 'claude') { config.provider = 'deepseek'; config.model = 'deepseek-v4-pro'; }
@@ -95,6 +112,13 @@ function registerAgentIPC() {
       // Send request to server (AFTER registering listeners)
       const requestId = `req-${Date.now()}`;
       console.log('[agent-ipc] agent-chat START:', config.provider, config.model, 'msgs:', messages.length);
+
+      // 限制消息总大小，防止 OOM
+      const msgStr = JSON.stringify({ config, messages });
+      const MAX_MSG_BYTES = 2 * 1024 * 1024; // 2MB
+      if (Buffer.byteLength(msgStr, 'utf-8') > MAX_MSG_BYTES) {
+        throw new Error(`消息过大 (${(Buffer.byteLength(msgStr, 'utf-8') / 1024 / 1024).toFixed(1)}MB > 2MB)，请缩减图片或历史消息`);
+      }
 
       const t0 = Date.now();
       const result = await new Promise((resolve, reject) => {
@@ -122,6 +146,8 @@ function registerAgentIPC() {
           config,
           messages,
           conversation_id: conversationId || 'default',
+          chat_mode: chatMode || 'chat',
+          activated_skill: activatedSkill || '',
         });
       });
 
@@ -202,6 +228,27 @@ function registerAgentIPC() {
     if (b.isReady()) {
       b.send({ type: 'tool_approval', approval_id: approvalId, approved });
     }
+  });
+
+  // ── Skill 管理 ──
+  ipcMain.handle('skill-list', async () => {
+    try { await ensureAgentReady(); return await wsRequest(b, { type: 'skill_list', request_id: `skl-${Date.now()}` }, 'skill_list'); }
+    catch (err) { return { error: err.message }; }
+  });
+
+  ipcMain.handle('skill-enable', async (_event, { name, enabled }) => {
+    try { await ensureAgentReady(); return await wsRequest(b, { type: 'skill_enable', request_id: `ske-${Date.now()}`, skill_name: name, enabled }, 'skill_enabled'); }
+    catch (err) { return { error: err.message }; }
+  });
+
+  ipcMain.handle('skill-install', async (_event, { source }) => {
+    try { await ensureAgentReady(); return await wsRequest(b, { type: 'skill_install', request_id: `ski-${Date.now()}`, source }, 'skill_installed'); }
+    catch (err) { return { success: false, error: err.message }; }
+  });
+
+  ipcMain.handle('skill-uninstall', async (_event, { name }) => {
+    try { await ensureAgentReady(); return await wsRequest(b, { type: 'skill_uninstall', request_id: `sku-${Date.now()}`, skill_name: name }, 'skill_uninstalled'); }
+    catch (err) { return { success: false, error: err.message }; }
   });
 
   // agent-index-file: 索引文件
@@ -667,29 +714,6 @@ function registerAgentIPC() {
             clearTimeout(timer); unsub();
             if (data.type === 'error') resolve({ error: data?.data?.content });
             else resolve({ [cfg.key || 'ok']: data?.data?.[cfg.key] || data?.data || true });
-          });
-        });
-      } catch (err) { return { error: err.message }; }
-    });
-  }
-
-  // ── Personality (P0) ──
-  for (const [channel, cfg] of Object.entries({
-    'personality-get': { type: 'personality_get', reply: 'personality_data' },
-    'personality-set': { type: 'personality_set', args: (opts) => ({ dim: opts.dim, value: opts.value }), reply: 'personality_updated' },
-    'personality-set-batch': { type: 'personality_set_batch', args: (opts) => ({ dims: opts.dims }), reply: 'personality_updated' },
-  })) {
-    ipcMain.handle(channel, async (_event, ...args) => {
-      try {
-        await ensureAgentReady();
-        const payload = cfg.args ? cfg.args(...args) : {};
-        const requestId = `req-pers-${Date.now()}`;
-        b.send({ type: cfg.type, request_id: requestId, ...payload });
-        return await new Promise((resolve) => {
-          const timer = setTimeout(() => resolve({ error: '超时' }), 10_000);
-          const unsub = b.on(cfg.reply, (data) => {
-            clearTimeout(timer); unsub();
-            resolve(data?.data || data);
           });
         });
       } catch (err) { return { error: err.message }; }

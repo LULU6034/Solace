@@ -89,7 +89,7 @@ export const browseTool = {
               log.log(`已点击: ${label}`);
               break;
             }
-          } catch {}
+          } catch (e) { log.warn('操作失败', e?.message || e); }
         }
         if (!clicked) return JSON.stringify({ error: '未找到可点击的元素', url: page.url() });
         await new Promise(r => setTimeout(r, 2000)); // 等页面加载/播放器出现
@@ -102,7 +102,7 @@ export const browseTool = {
               log.log('已点播放');
               break;
             }
-          } catch {}
+          } catch (e) { log.warn('操作失败', e?.message || e); }
         }
         await new Promise(r => setTimeout(r, 2000));
       }
@@ -136,7 +136,7 @@ export const browseTool = {
               log.log(`已输入: "${q}" → 回车`);
               break;
             }
-          } catch {}
+          } catch (e) { log.warn('操作失败', e?.message || e); }
         }
         if (!typed) return `未找到搜索框，当前页面: ${page.url()}`;
         await new Promise(r => setTimeout(r, 2000)); // 等搜索结果
@@ -159,7 +159,7 @@ export const browseTool = {
           if (await fsBtn.isVisible({ timeout: 500 }).catch(() => false)) {
             await fsBtn.click({ timeout: 1000 }).catch(() => {});
           }
-        } catch {}
+        } catch (e) { log.warn('操作失败', e?.message || e); }
         log.log('已全屏');
         await new Promise(r => setTimeout(r, 500));
       }
@@ -198,7 +198,7 @@ export function isBrowserReady() {
 
 export async function closeBrowser() {
   if (_browser) {
-    try { await _browser.close(); } catch {}
+    try { await _browser.close(); } catch (e) { log.warn('操作失败', e?.message || e); }
     _browser = null;
     _page = null;
     _initPromise = null;
@@ -308,11 +308,11 @@ async function _dismissAds(page) {
           log.log('关闭弹窗:', sel);
           await new Promise(r => setTimeout(r, 300));
         }
-      } catch {}
+      } catch (e) { log.warn('操作失败', e?.message || e); }
     }
     // 按 Escape 关闭可能的模态框
     await page.keyboard.press('Escape').catch(() => {});
-  } catch {}
+  } catch (e) { log.warn('操作失败', e?.message || e); }
 }
 
 /** 自动点击第一个搜索结果 + 播放按钮 */
@@ -360,9 +360,9 @@ async function _autoClickPlay(page) {
           await new Promise(r => setTimeout(r, 2000));
           return;
         }
-      } catch {}
+      } catch (e) { log.warn('操作失败', e?.message || e); }
     }
-  } catch {}
+  } catch (e) { log.warn('操作失败', e?.message || e); }
 }
 
 /** 检测并自动解决滑块验证码（图像识别 + 轨迹模拟） */
@@ -451,9 +451,9 @@ async function _waitForCaptcha(page) {
         log.warn('自动过滑块失败，降级等待手动完成');
         await _waitManualCaptcha(page);
         return;
-      } catch {}
+      } catch (e) { log.warn('操作失败', e?.message || e); }
     }
-  } catch {}
+  } catch (e) { log.warn('操作失败', e?.message || e); }
 }
 
 /** 等待用户手动完成验证码 */
@@ -534,7 +534,7 @@ async function _calcSlideDistance(page, cfg) {
   try {
     const wrapperBox = await page.locator(wrapper).first().boundingBox();
     if (wrapperBox) return Math.round(wrapperBox.width * 0.7);
-  } catch {}
+  } catch (e) { log.warn('操作失败', e?.message || e); }
 
   return 250; // 大屏默认值
 }

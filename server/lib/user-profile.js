@@ -34,6 +34,7 @@ const DEFAULT_HALF_LIFE = {
 
   // Explicit knowledge
   name: 8760,              // 姓名 — 1年（几乎不变）
+  nickname: 8760,          // 昵称 — 1年（几乎不变）
   location: 2160,          // 位置 — 90天
   occupation: 2160,        // 职业 — 90天
   language: 8760,          // 语言 — 1年
@@ -52,7 +53,31 @@ export class UserProfile {
       ? path.join(persistDir, 'user-profile.json')
       : null;
     this.attributes = {}; // { key: { value, confidence, lastUpdated, halfLife, sources } }
+    this._nickname = '';  // 用户昵称，独立存储，高持久性
     this.load();
+  }
+
+  // ── CRUD ──
+
+  /**
+   * 用户昵称 getter（独立存储，不在 attributes 中）
+   * @returns {string}
+   */
+  get nickname() {
+    return this._nickname || '';
+  }
+
+  /**
+   * 用户昵称 setter（自动持久化）
+   * @param {string} value
+   */
+  set nickname(value) {
+    const old = this._nickname;
+    this._nickname = String(value || '').trim();
+    if (this._nickname !== old) {
+      this.save();
+      log.log(`昵称更新: "${old}" → "${this._nickname}"`);
+    }
   }
 
   // ── CRUD ──
@@ -144,12 +169,63 @@ export class UserProfile {
   formatForLLM() {
     const attrs = this.getHighConfidence(0.5);
     const lines = [];
+    // 昵称优先显示
+    if (this._nickname) {
+      lines.push(`- 昵称: ${this._nickname}`);
+    }
     for (const [key, attr] of Object.entries(attrs)) {
       const label = PROFILE_LABELS[key] || key;
       lines.push(`- ${label}: ${attr.value} (置信度 ${(attr.confidence * 100).toFixed(0)}%)`);
     }
     if (lines.length === 0) return null;
     return '## 用户画像\n' + lines.join('\n');
+  }
+
+  /**
+   * 生成用户中文摘要描述
+   * 基于所有已追踪属性，生成简短的自然语言描述
+   * @returns {string} 中文描述文本
+   */
+  getSummary() {
+    const parts = [];
+
+    // 昵称
+    if (this._nickname) {
+      parts.push(`用户昵称是"${this._nickname}"`);
+    }
+
+    // 高置信度身份属性
+    const identity = ['name', 'location', 'occupation', 'language'];
+    for (const key of identity) {
+      const attr = this.get(key);
+      if (attr && attr.confidence >= 0.4) {
+        const label = PROFILE_LABELS[key] || key;
+        parts.push(`${label}是${attr.value}`);
+      }
+    }
+
+    // 高置信度偏好属性
+    const preference = ['interest', 'personality_openness', 'personality_extraversion'];
+    for (const key of preference) {
+      const attr = this.get(key);
+      if (attr && attr.confidence >= 0.4) {
+        const label = PROFILE_LABELS[key] || key;
+        parts.push(`${label}: ${attr.value}`);
+      }
+    }
+
+    // 状态属性
+    const state = ['mood', 'currentProject'];
+    for (const key of state) {
+      const attr = this.get(key);
+      if (attr && attr.confidence >= 0.3) {
+        const label = PROFILE_LABELS[key] || key;
+        parts.push(`${label}: ${attr.value}`);
+      }
+    }
+
+    if (parts.length === 0) return '';
+    return parts.join('，') + '。';
   }
 
   /** Prune expired low-confidence attributes */
@@ -195,8 +271,20 @@ export class UserProfile {
     if (!this.filePath) return;
     try {
       if (fs.existsSync(this.filePath)) {
-        this.attributes = JSON.parse(fs.readFileSync(this.filePath, 'utf-8'));
-        log.log(`加载用户画像: ${Object.keys(this.attributes).length} 属性`);
+        const data = JSON.parse(fs.readFileSync(this.filePath, 'utf-8'));
+        // 兼容旧格式: 分离 nickname 和 attributes
+        if (data && typeof data === 'object' && !Array.isArray(data)) {
+          if (data._nickname !== undefined) {
+            this._nickname = data._nickname;
+            delete data._nickname;
+            this.attributes = data;
+          } else {
+            this.attributes = data;
+          }
+        } else {
+          this.attributes = data || {};
+        }
+        log.log(`加载用户画像: ${Object.keys(this.attributes).length} 属性${this._nickname ? `, 昵称: ${this._nickname}` : ''}`);
       }
     } catch (err) {
       log.warn(`加载画像失败: ${err.message}`);
@@ -208,7 +296,8 @@ export class UserProfile {
     if (!this.filePath) return;
     try {
       fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-      fs.writeFileSync(this.filePath, JSON.stringify(this.attributes, null, 2));
+      const data = { ...this.attributes, _nickname: this._nickname };
+      fs.writeFileSync(this.filePath, JSON.stringify(data, null, 2));
     } catch (err) {
       log.warn(`保存画像失败: ${err.message}`);
     }

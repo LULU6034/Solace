@@ -36,8 +36,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   llmChat: (config, messages) => ipcRenderer.send('llm-chat', { config, messages }),
 
   // Agent 模式 — Python LangChain 服务
-  agentChat: (config, messages, conversationId) =>
-    ipcRenderer.invoke('agent-chat', { config, messages, conversationId }),
+  agentChat: (config, messages, conversationId, chatMode = 'chat', activatedSkill = '') =>
+    ipcRenderer.invoke('agent-chat', { config, messages, conversationId, chatMode, activatedSkill }),
   agentChatGroup: (config, messages, conversationId, agentIds, mentionedIds, groupSettings) =>
     ipcRenderer.invoke('agent-chat-group', { config, messages, conversationId, agentIds, mentionedIds, groupSettings }),
   agentApproveTool: (approvalId, approved) =>
@@ -149,6 +149,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const listener = (_event, data) => cb(data)
     ipcRenderer.on('memory-conflict', listener)
     return () => ipcRenderer.removeListener('memory-conflict', listener)
+  },
+  onSkillsChanged: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('skills-changed', listener)
+    return () => ipcRenderer.removeListener('skills-changed', listener)
   },
 
   // ── Reminder ──
@@ -297,11 +302,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   memoryClearAll: () => ipcRenderer.invoke('memory-clear-all'),
   memoryImport: (data) => ipcRenderer.invoke('memory-import', data),
 
-  // ── Personality (P0) ──
-  personalityGet: () => ipcRenderer.invoke('personality-get'),
-  personalitySet: (opts) => ipcRenderer.invoke('personality-set', opts),
-  personalitySetBatch: (opts) => ipcRenderer.invoke('personality-set-batch', opts),
-
   // ── Voice Clone (P1) ──
   voiceCloneVoice: (opts) => ipcRenderer.invoke('voice-clone-voice', opts),
   voiceDeleteVoice: (voiceId) => ipcRenderer.invoke('voice-delete-voice', voiceId),
@@ -350,4 +350,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   neteaseLyric: (params) => ipcRenderer.invoke('netease-lyric', params),
   neteaseRecommendPlaylists: () => ipcRenderer.invoke('netease-recommend-playlists'),
   neteasePlaylistDetail: (params) => ipcRenderer.invoke('netease-playlist-detail', params),
+  // Skill 管理
+  skillList: () => ipcRenderer.invoke('skill-list'),
+  skillEnable: (name, enabled) => ipcRenderer.invoke('skill-enable', { name, enabled }),
+  skillInstall: (source) => ipcRenderer.invoke('skill-install', { source }),
+  skillUninstall: (name) => ipcRenderer.invoke('skill-uninstall', { name }),
+  // 语音转文字
+  voiceSTT: (audioB64) => ipcRenderer.invoke('voice-stt', { audio: audioB64 }),
+  // 按住说话快捷键 (keyDown/keyUp 事件)
+  onVoiceEvent: (cb) => {
+    const listener = (_event, type) => cb(type)
+    ipcRenderer.on('voice-event', listener)
+    return () => ipcRenderer.removeListener('voice-event', listener)
+  },
 });

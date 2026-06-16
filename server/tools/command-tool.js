@@ -4,6 +4,9 @@
  * 需要用户审批。危险命令检测。
  */
 import { execSync } from 'node:child_process';
+import { createModuleLogger } from '../lib/debug-log.js';
+
+const log = createModuleLogger('command-tool');
 
 const COMMAND_TIMEOUT = 30_000; // 30 seconds
 const MAX_OUTPUT = 3000;
@@ -42,12 +45,25 @@ export const executeCommand = {
       }
     }
 
+    // 自动替换 python → 完整路径（Windows 上 Agent Server 的 PATH 没有 Python）
+    let finalCmd = command;
+    if (process.platform === 'win32' && /^python\b/.test(cmdLower)) {
+      const candidates = [
+        process.env.USERPROFILE + '\\AppData\\Local\\Programs\\Python\\Python312\\python.exe',
+        'C:\\Program Files\\Python312\\python.exe',
+        'C:\\Python312\\python.exe',
+      ];
+      for (const py of candidates) {
+        try { execSync(`"${py}" --version`, { windowsHide: true, stdio: 'pipe' }); finalCmd = command.replace(/^python\b/, `"${py}"`); break; } catch (e) { log.warn('操作失败', e?.message || e); }
+      }
+    }
+
     try {
       const isWindows = process.platform === 'win32';
       const shell = isWindows ? 'cmd.exe' : '/bin/sh';
       const shellFlag = isWindows ? '/c' : '-c';
 
-      const output = execSync(command, {
+      const output = execSync(finalCmd, {
         shell: true,
         timeout: COMMAND_TIMEOUT,
         encoding: 'utf-8',

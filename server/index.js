@@ -8,6 +8,23 @@
  *   agent_chat         — 单 Agent 对话
  *   agent_chat_group   — 群聊/多 Expert 模式
  *   tool_approval      — 工具审批回复
+ *
+ * TODO(arch): 本文件 1700+ 行需拆分 — routes/http.js / routes/ws.js / init/bootstrap.js
+ * TODO(arch): tools/index.js 需重构为 ToolRegistry 类, memory-store-ref.js 可变单例需 DI
+ * TODO(quality): ✅ 86 空 catch{} 已加 log.warn(), ✅ server 端 10 处 console.log 已替换为 debug-log (electron 端 52 处保留)
+ * TODO(perf): 12 个大文件需拆分 (按行数排序):
+ *   1. index.js (1776) → routes/http.js / routes/ws.js / init/bootstrap.js
+ *   2. coordinator.js (907) → 按职责拆分
+ *   3. reflection.js (886) → 按知识类型拆分
+ *   4. agent.js (837) → _runAnswerPhase(404行) 拆出
+ *   5. music-tools.js (752) → 推荐/搜索/播放分离
+ *   6. graph.js (707) → 图算法/存储分离
+ *   7. browser-tool.js (624) → 按浏览器操作类型拆分
+ *   8. indexer.js (616) → 索引/监控分离
+ *   9. agent-ipc.cjs (746) → 按 IPC 通道拆分
+ *  10. SettingsPanel.vue (1148) → 按设置分区拆分
+ *  11. KnowledgePage.vue (1146) → 按知识操作拆分
+ *  12. MusicPanel.vue (816) → 按音乐功能拆分
  *   index_file         — 索引文件到 RAG
  *   search_rag         — 搜索 RAG
  *   get_memory_count   — 记忆数量
@@ -47,9 +64,6 @@ let _SessionMemory = null;
 let _MemoryManager = null;
 let _UserProfile = null;
 let _SleepMode = null;
-let _EmotionTrend = null;
-let _StyleAdapter = null;
-let _Personality = null;
 let _KnowledgeGraph = null;
 
 const log = createModuleLogger('server');
@@ -282,7 +296,7 @@ async function getMemoryStore() {
                 return { ...r, score: Math.round((r.score || 0) * decay * 100) / 100, source: 'vector' };
               });
             }
-          } catch {}
+          } catch (e) { log.warn('操作失败', e?.message || e); }
         }
         // 降级: 返回带提示的结果
         const kwResults = this.factStore.search(query, k).map(r => ({ ...r, source: 'keyword' }));
@@ -402,29 +416,16 @@ async function handleAgentChat(ws, msg) {
   const config = msg.config || {};
   const messages = msg.messages || [];
   const convId = msg.conversation_id || 'default';
-  const targetAgentId = msg.agent_id || _AgentManager?.activeAgentId;
+  const chatMode = msg.chat_mode || 'chat';
+  const activatedSkill = msg.activated_skill || '';
+  const targetAgentId = msg.agent_id || config.agentId || _AgentManager?.activeAgentId;
 
   const agent = _AgentManager?.getAgent(targetAgentId);
   const agentConfig = { ...(agent?.config || {}), ...config }; // merge
 
   log.log(`agent_chat: agent=${agent?.name} provider=${agentConfig.provider} msgs=${messages.length}`);
 
-  let _agentEmotion = 'neutral';
   const send = (type, data) => {
-    if (type === 'done' && data?.content) {
-      const emoMatch = data.content.match(/^\[emotion:(\w+)\]\s*/);
-      if (emoMatch) {
-        _agentEmotion = emoMatch[1];
-      } else {
-        // 后备: 关键词推断情绪
-        const text = data.content.slice(0, 100);
-        if (/哈哈|🎉|开心|太棒|恭喜|nice|爽/i.test(text)) _agentEmotion = 'happy';
-        else if (/难过|😔|😢|伤心|心疼|节哀|抱抱/i.test(text)) _agentEmotion = 'sad';
-        else if (/😤|气死|无语|过分|投诉/i.test(text)) _agentEmotion = 'angry';
-        else if (/担心|焦虑|紧张|别怕|担心/i.test(text)) _agentEmotion = 'worried';
-        else if (/加油|你可以|相信|没问题|试试/i.test(text)) _agentEmotion = 'encouraging';
-      }
-    }
     sendEvent(ws, type, data, requestId);
   };
 
@@ -440,6 +441,38 @@ async function handleAgentChat(ws, msg) {
     });
   };
 
+  // 安全网关：对所有用户消息做规则+语义两级过滤
+  try {
+    const lastUserMsg = messages.filter(m => m.role === 'user').pop();
+    if (lastUserMsg?.content) {
+      const { securityGate } = await import('./security/gate.js');
+      const { createLLM } = await import('./core/llm-client.js');
+      const gateResult = await securityGate(
+        lastUserMsg.content,
+        messages.slice(0, -1),
+        agent?.role || 'user',
+        (opts) => createLLM({ ...agentConfig, ...opts }),
+      );
+      if (gateResult.level === 'red') {
+        // red 级别：要求用户确认，不允许静默放行
+        const approved = await waitApproval('安全网关', {
+          risk: gateResult.reason,
+          evidence: gateResult.evidence,
+          overridden: gateResult.overridden || false,
+        });
+        if (!approved) {
+          send('agent_error', { content: `安全网关拦截: ${gateResult.reason}` });
+          send('done', { content: `抱歉，这个请求涉及高风险操作，已被安全网关拦截。原因: ${gateResult.reason}` });
+          return;
+        }
+        log.warn(`安全网关 red 级别警告，用户确认继续: ${gateResult.reason}`);
+      } else if (gateResult.level === 'yellow') {
+        // yellow 级别：告知前端有风险但不阻断
+        send('security_warning', { reason: gateResult.reason, evidence: gateResult.evidence });
+      }
+    }
+  } catch (e) { log.warn(`安全网关检查失败: ${e.message}`); }
+
   try {
     if (!_runAgent) {
       const agentModule = await import('./core/agent.js');
@@ -451,9 +484,29 @@ async function handleAgentChat(ws, msg) {
     }
 
     // Inject per-agent personality
-    const personalityMessages = agent
+    let personalityMessages = agent
       ? agent.injectPersonality(messages)
       : messages;
+
+    // Inject activated skill body
+    if (activatedSkill) {
+      const skill = _SkillManager?.findSkill(activatedSkill);
+      if (skill?.body) {
+        const toolsHint = skill.meta.tools?.length
+          ? `\n\n(此 Skill 声明了工具权限: ${skill.meta.tools.join(', ')})`
+          : '';
+        personalityMessages = [
+          {
+            role: 'system',
+            content: `[已激活 Skill: ${skill.name}]\n${skill.body}${toolsHint}`,
+          },
+          ...personalityMessages,
+        ];
+        log.log(`Skill 已激活: ${skill.name}`);
+      } else {
+        log.warn(`Skill 未找到或内容为空: ${activatedSkill}`);
+      }
+    }
 
     await _runAgent({
       config: agentConfig,
@@ -465,11 +518,10 @@ async function handleAgentChat(ws, msg) {
       waitApproval,
       memoryManager: _MemoryManager || null,
       userProfile: _UserProfile || null,
-      styleAdapter: _StyleAdapter || null,
-      personality: _Personality || null,
+      chatMode,
     });
 
-    // Post-chat: update memory, profile, style, knowledge graph
+    // Post-chat: update memory, profile, knowledge graph
     if (_MemoryManager) {
       const lastUserMsg = messages[messages.length - 1];
       if (lastUserMsg?.role === 'user') {
@@ -478,8 +530,6 @@ async function handleAgentChat(ws, msg) {
     }
     const userMsg = messages.find(m => m.role === 'user');
     if (userMsg?.content) {
-      _StyleAdapter?.analyzeMessage(userMsg.content);
-      _Personality?.adapt('user_expanded');
       // Ingest into knowledge graph (规则 + LLM 深度推理)
       if (_KnowledgeGraph) {
         const entities = _KnowledgeGraph.ingest(userMsg.content);
@@ -495,14 +545,10 @@ async function handleAgentChat(ws, msg) {
           if (result?.entities?.length || result?.relations?.length) {
             log.log(`知识图谱(LLM): ${result.entities.length}实体, ${result.relations.length}关系, ${result.inferred.length}推理`);
           }
-        }).catch(() => {});
+        }).catch((e) => { log.warn('操作失败', e?.message || e); });
       }
     }
 
-    // 记录本次对话的情绪趋势
-    if (_EmotionTrend && _agentEmotion) {
-      _EmotionTrend.record(_agentEmotion);
-    }
 
     // 提取情境事件
     if (_MemoryManager && messages.length >= 2) {
@@ -519,7 +565,7 @@ async function handleAgentChat(ws, msg) {
             content: { keyQuote: content.trim() }, importance: 5,
           });
         }
-      } catch {}
+      } catch (e) { log.warn('操作失败', e?.message || e); }
     }
 
     // 知识缺口检测（后台，不阻塞）
@@ -533,7 +579,7 @@ async function handleAgentChat(ws, msg) {
           log.log(`好奇心: 发现 ${gaps.length} 个新知识缺口`);
         }
       }
-    } catch {}
+    } catch (e) { log.warn('操作失败', e?.message || e); }
 
     // Notify heartbeat of user activity
     if (agent) {
@@ -837,17 +883,17 @@ wss.on('connection', (ws) => {
           if (fs.existsSync(hatchDir)) {
             for (const f of fs.readdirSync(hatchDir)) {
               if (f.endsWith('.json')) {
-                try { pets.push(JSON.parse(fs.readFileSync(path.join(hatchDir, f), 'utf-8'))); } catch {}
+                try { pets.push(JSON.parse(fs.readFileSync(path.join(hatchDir, f), 'utf-8'))); } catch (e) { log.warn('操作失败', e?.message || e); }
               }
             }
           }
-        } catch {}
+        } catch (e) { log.warn('操作失败', e?.message || e); }
         sendEvent(ws, 'hatched_pets', { request_id: msg.request_id, pets }, msg.request_id);
         break;
       }
       case 'delete_hatched_pet': {
         const hatchDir = path.join(getPersistDir(), 'hatched');
-        try { fs.unlinkSync(path.join(hatchDir, `${msg.pet_id}.json`)); } catch {}
+        try { fs.unlinkSync(path.join(hatchDir, `${msg.pet_id}.json`)); } catch (e) { log.warn('操作失败', e?.message || e); }
         sendEvent(ws, 'hatch_deleted', { request_id: msg.request_id, pet_id: msg.pet_id }, msg.request_id);
         break;
       }
@@ -892,11 +938,11 @@ wss.on('connection', (ws) => {
             for (const d of fs.readdirSync(petsDir)) {
               const metaPath = path.join(petsDir, d, 'pet.json');
               if (fs.existsSync(metaPath)) {
-                try { pets.push(JSON.parse(fs.readFileSync(metaPath, 'utf-8'))); } catch {}
+                try { pets.push(JSON.parse(fs.readFileSync(metaPath, 'utf-8'))); } catch (e) { log.warn('操作失败', e?.message || e); }
               }
             }
           }
-        } catch {}
+        } catch (e) { log.warn('操作失败', e?.message || e); }
         sendEvent(ws, 'agent_pets', { request_id: msg.request_id, pets }, msg.request_id);
         break;
       }
@@ -1042,6 +1088,7 @@ wss.on('connection', (ws) => {
           name: s.name,
           description: s.meta.description,
           trigger: s.meta.trigger,
+          tools: s.meta.tools || [],
           enabled: s.enabled,
           builtin: s.builtin,
         })) || [];
@@ -1061,6 +1108,18 @@ wss.on('connection', (ws) => {
           sendEvent(ws, 'skill_installed', { request_id: msg.request_id, ...result }, msg.request_id);
         })();
         break;
+      case 'skill_uninstall': {
+        const name = msg.skill_name || '';
+        if (!name) { sendEvent(ws, 'error', { content: '缺少 skill_name' }, msg.request_id); break; }
+        const dir = path.join(getPersistDir(), 'skills-user', name);
+        try {
+          if (fs.existsSync(dir)) { fs.rmSync(dir, { recursive: true }); _SkillManager?.loadAll(); }
+          sendEvent(ws, 'skill_uninstalled', { request_id: msg.request_id, skillName: name }, msg.request_id);
+        } catch (err) {
+          sendEvent(ws, 'error', { content: '卸载失败: ' + err.message }, msg.request_id);
+        }
+        break;
+      }
       // ── Plugins ──
       case 'plugin_list': {
         const plugins = _PluginManager?.listPlugins() || [];
@@ -1115,10 +1174,10 @@ wss.on('connection', (ws) => {
       case 'voice_tts': {
         (async () => {
           try {
-            console.log('[server] voice_tts:', msg.text?.slice(0, 30));
+            log.log('voice_tts:', msg.text?.slice(0, 30));
             const { getTTSManager } = await import('./voice/tts.js');
             const tts = getTTSManager();
-            console.log('[server] TTS mode:', tts.mode);
+            log.log('TTS mode:', tts.mode);
             const chunks = [];
             for await (const chunk of tts.synthesizeStream(msg.text || '', {
               emotion: msg.emotion || 'neutral',
@@ -1142,6 +1201,30 @@ wss.on('connection', (ws) => {
             log.error(`voice_tts 失败: ${err.message}`);
             sendEvent(ws, 'voice_tts_done', {
               request_id: msg.request_id,
+              error: err.message,
+            }, msg.request_id);
+          }
+        })();
+        break;
+      }
+
+      case 'voice_stt': {
+        (async () => {
+          try {
+            const audioB64 = msg.audio || '';
+            const audioBuf = Buffer.from(audioB64, 'base64');
+            const { transcribeAudio } = await import('./voice/stt.js');
+            const apiKey = process.env.DASHSCOPE_API_KEY || '';
+            const result = await transcribeAudio(audioBuf, apiKey);
+            sendEvent(ws, 'voice_stt_result', {
+              request_id: msg.request_id,
+              text: result.text,
+            }, msg.request_id);
+          } catch (err) {
+            log.error(`voice_stt 失败: ${err.message}`);
+            sendEvent(ws, 'voice_stt_result', {
+              request_id: msg.request_id,
+              text: '',
               error: err.message,
             }, msg.request_id);
           }
@@ -1286,37 +1369,8 @@ wss.on('connection', (ws) => {
         sendEvent(ws, 'memory_cleared', {}, msg.request_id);
         break;
       }
-      // ── Personality (P0) ──
-      case 'personality_get': {
-        sendEvent(ws, 'personality_data', { dims: _Personality?.getAll() || {} }, msg.request_id);
-        break;
-      }
-      case 'personality_set': {
-        _Personality?.set(msg.dim, msg.value);
-        sendEvent(ws, 'personality_updated', { dims: _Personality?.getAll() }, msg.request_id);
-        break;
-      }
-      case 'personality_set_batch': {
-        for (const [dim, value] of Object.entries(msg.dims || {})) {
-          _Personality?.set(dim, value);
-        }
-        sendEvent(ws, 'personality_updated', { dims: _Personality?.getAll() }, msg.request_id);
-        break;
-      }
-      case 'personality_adapt': {
-        _Personality?.adapt(msg.signal, msg.context || {});
-        sendEvent(ws, 'personality_updated', { dims: _Personality?.getAll() }, msg.request_id);
-        break;
-      }
-
       case 'battery_profile': {
         log.log(`电池模式: ${msg.level} (${Math.round((msg.batteryLevel || 1) * 100)}%)`);
-        if (_Personality) {
-          // Reduce curiosity on low battery to save processing
-          if (msg.level === 'low' || msg.level === 'critical') {
-            _Personality.set('curiosity', Math.max(0.1, _Personality.get('curiosity') - 0.2));
-          }
-        }
         break;
       }
 
@@ -1500,6 +1554,17 @@ async function initHub() {
     skillDirs: [builtinSkillsDir, userSkillsDir],
   });
   _SkillManager.loadAll();
+  import('./tools/index.js').then(m => {
+    m.setSkillManager?.(_SkillManager);
+  });
+  // Skill 变更 → 广播到所有前端
+  import('./tools/skill-tools.js').then(m => {
+    m.onSkillsChanged(() => {
+      for (const [, session] of sessions) {
+        sendEvent(session.ws, 'skills_changed', {});
+      }
+    });
+  });
 
   // 4. Plugin Manager
   const { PluginManager } = await import('./plugins/plugin-manager.js');
@@ -1603,7 +1668,7 @@ async function initHub() {
         const n = fs.decayAll();
         if (n > 0) log.log(`启动衰减: ${n} 条更新`);
       }
-    } catch {}
+    } catch (e) { log.warn('操作失败', e?.message || e); }
   }, 5000);
   _MemoryManager = await new MemoryManager({
     persistDir: getPersistDir(),
@@ -1620,26 +1685,18 @@ async function initHub() {
     llmConfig: { provider: process.env.SLEEP_LLM_PROVIDER || 'deepseek', model: 'deepseek-chat' },
   });
 
-  // ── Emotion + Style (Phase 4) ──
-  const { EmotionTrend } = await import('./personality/emotion-trend.js');
-  _EmotionTrend = new EmotionTrend(getPersistDir());
-
-  const { StyleAdapter } = await import('./personality/injector.js');
-  _StyleAdapter = new StyleAdapter(getPersistDir());
-
-  const { Personality } = await import('./personality/index.js');
-  _Personality = new Personality(getPersistDir());
-
   const { KnowledgeGraph } = await import('./knowledge/memory-graph.js');
   _KnowledgeGraph = new KnowledgeGraph({ persistDir: getPersistDir() });
   // 注入 KG 到记忆工具
   import('./tools/index.js').then(m => m.setKG?.(_KnowledgeGraph));
+  // 注入 MemoryManager 到记忆工具（Stage 5）
+  import('./tools/index.js').then(m => m.setMemoryManagerForTools?.(_MemoryManager));
 
   // Wire sleep mode to heartbeat events
   _Hub.eventBus.subscribe('heartbeat_pulse', () => {
     _SleepMode?.notifyActivity();
     // Try to run sleep reflection
-    _SleepMode?.run().catch(() => {});
+    _SleepMode?.run().catch((e) => { log.warn('操作失败', e?.message || e); });
   });
 
   // Add agent tools to tool registry
@@ -1695,7 +1752,7 @@ function _preload() {
       await import('./security/gate.js');
       await import('./vision/expert.js');
       // 浏览器预热（后台异步，不阻塞启动）
-      import('./tools/browser-tool.js').then(m => m.preInitBrowser()).catch(() => {});
+      import('./tools/browser-tool.js').then(m => m.preInitBrowser()).catch((e) => { log.warn('操作失败', e?.message || e); });
       const t2 = Date.now();
       log.log(`预热完成 (${t2 - t0}ms)`);
     } catch (err) {
@@ -1744,7 +1801,7 @@ httpServer.listen(PORT, '127.0.0.1', async () => {
 async function shutdown() {
   log.log('正在关闭...');
   // 关闭浏览器
-  try { const { closeBrowser: _cb } = await import('./tools/browser-tool.js'); await _cb(); } catch {}
+  try { const { closeBrowser: _cb } = await import('./tools/browser-tool.js'); await _cb(); } catch (e) { log.warn('操作失败', e?.message || e); }
   if (_Hub) await _Hub.stop();
   wss.close(() => {
     httpServer.close(() => process.exit(0));

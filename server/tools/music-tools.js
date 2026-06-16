@@ -51,13 +51,13 @@ function _loadRecentPlayed() {
       const data = JSON.parse(fs.readFileSync(p, 'utf-8'));
       _recentPlayed.length = 0; _recentPlayed.push(...(data.ids || []));
     }
-  } catch {}
+  } catch (e) { log.warn('操作失败', e?.message || e); }
 }
 function _saveRecentPlayed() {
   try {
     const p = _playedFilePath();
     if (p) fs.writeFileSync(p, JSON.stringify({ ids: _recentPlayed.slice(-30), updated: Date.now() }));
-  } catch {}
+  } catch (e) { log.warn('操作失败', e?.message || e); }
 }
 
 const MAX_RECENT = 30;
@@ -231,7 +231,7 @@ function loadCookie() {
 let _neteaseApi = null;
 function getNeteaseApi() {
   if (!_neteaseApi) {
-    try { _neteaseApi = _require('@neteasecloudmusicapienhanced/api'); } catch {}
+    try { _neteaseApi = _require('@neteasecloudmusicapienhanced/api'); } catch (e) { log.warn('操作失败', e?.message || e); }
   }
   return _neteaseApi;
 }
@@ -476,42 +476,27 @@ export const recommendMusic = {
     };
 
     if (cookie) {
-      try {
-        const daily = await callNetease('recommend_songs');
-        if (daily?.data?.dailySongs?.length) { addCandidates(daily.data.dailySongs, 'daily'); log.log(`每日推荐: ${daily.data.dailySongs.length} 首`); }
-      } catch(e) { log.warn(`recommend_songs 失败: ${e.message}`); }
-      try {
-        const fm = await callNetease('personal_fm');
-        if (fm?.data?.length) { addCandidates(fm.data, 'fm'); log.log(`私人FM: ${fm.data.length} 首`); }
-      } catch(e) { log.warn(`personal_fm 失败: ${e.message}`); }
-      // 用户喜欢的歌曲（最强个性化信号）
-      try {
-        // 先从账号信息获取 uid
-        let uid = '';
-        try {
-          const account = await callNetease('user_account');
-          uid = String(account?.profile?.userId || account?.account?.id || '');
-        } catch {}
-        if (uid) {
-          const liked = await callNetease('likelist', { uid });
-          if (liked?.ids?.length) {
-            const likedDetail = await callNetease('song_detail', { ids: liked.ids.slice(0, 500).join(',') });
-            if (likedDetail?.songs?.length) { addCandidates(likedDetail.songs.slice(0, 50), 'liked'); log.log(`喜欢列表: ${Math.min(50, likedDetail.songs.length)} 首`); }
-          }
-        } else {
-          log.warn('likelist: 无法获取用户 UID，跳过');
-        }
-      } catch(e) { log.warn(`NetEase likelist 失败: ${e.message}`); }
-      // 排行榜/热门歌单
-      try {
-        const topList = await callNetease('top_list', { id: 3778678 });
-        if (topList?.playlist?.tracks?.length) { addCandidates(topList.playlist.tracks.slice(0, 20), 'toplist'); log.log(`热歌榜: ${Math.min(20, topList.playlist.tracks.length)} 首`); }
-      } catch {}
-      try {
-        const newSongs = await callNetease('top_song', { type: 0 });
-        if (newSongs?.data?.length) { addCandidates(newSongs.data.slice(0, 15), 'new'); log.log(`新歌速递: ${Math.min(15, newSongs.data.length)} 首`); }
-      } catch {}
-      // 个性化推荐歌单（网易云首页推荐）
+      // ── 分批获取：网易云 API 单例不支持高并发，最多 2 路并行 ──
+      // 第一批：最慢的每日推荐 + 用户账号（likelist 需要 uid），并行
+      const [daily, account] = await Promise.allSettled([
+        callNetease('recommend_songs').catch(() => null),
+        callNetease('user_account').catch(() => null),
+      ]);
+      if (daily.status === 'fulfilled' && daily.value?.data?.dailySongs?.length) {
+        addCandidates(daily.value.data.dailySongs, 'daily');
+        log.log(`每日推荐: ${daily.value.data.dailySongs.length} 首`);
+      }
+      const uid = String(account.status === 'fulfilled' ? (account.value?.profile?.userId || account.value?.account?.id || '') : '');
+
+      // 第二批：互不依赖的数据源，全部并行
+      const [fm, topList, newSongs] = await Promise.allSettled([
+        callNetease('personal_fm').catch(() => null),
+        callNetease('top_list', { id: 3778678 }).catch(() => null),
+        callNetease('top_song', { type: 0 }).catch(() => null),
+      ]);
+      if (fm.status === 'fulfilled' && fm.value?.data?.length) { addCandidates(fm.value.data, 'fm'); log.log(`私人FM: ${fm.value.data.length} 首`); }
+      if (topList.status === 'fulfilled' && topList.value?.playlist?.tracks?.length) { addCandidates(topList.value.playlist.tracks.slice(0, 20), 'toplist'); log.log(`热歌榜: ${Math.min(20, topList.value.playlist.tracks.length)} 首`); }
+      if (newSongs.status === 'fulfilled' && newSongs.value?.data?.length) { addCandidates(newSongs.value.data.slice(0, 15), 'new'); log.log(`新歌速递: ${Math.min(15, newSongs.value.data.length)} 首`); }
       try {
         const personalized = await callNetease('personalized', { limit: 10 });
         if (personalized?.result?.length) {
@@ -519,33 +504,27 @@ export const recommendMusic = {
           for (const pl of picks) {
             try {
               const detail = await callNetease('playlist_detail', { id: pl.id });
-              if (detail?.playlist?.tracks?.length) {
-                addCandidates(detail.playlist.tracks.slice(0, 30), 'personalized');
-              }
-            } catch {}
+              if (detail?.playlist?.tracks?.length) { addCandidates(detail.playlist.tracks.slice(0, 30), 'personalized'); }
+            } catch (e) { log.warn('操作失败', e?.message || e); }
           }
-          log.log(`个性化歌单: ${picks.length} 个, 新增候选`);
+          log.log(`个性化歌单: ${picks.length} 个`);
         }
-      } catch(e) { log.warn(`personalized 失败: ${e.message}`); }
+      } catch(e) { log.warn('操作失败', e?.message || e); }
+
+      // 喜欢列表（依赖 account uid）
+      if (uid) {
+        try {
+          const liked = await callNetease('likelist', { uid });
+          if (liked?.ids?.length) {
+            const likedDetail = await callNetease('song_detail', { ids: liked.ids.slice(0, 500).join(',') });
+            if (likedDetail?.songs?.length) { addCandidates(likedDetail.songs.slice(0, 50), 'liked'); log.log(`喜欢列表: ${Math.min(50, likedDetail.songs.length)} 首`); }
+          }
+        } catch(e) { log.warn('操作失败', e?.message || e); }
+      }
     }
 
-    // 偏好歌手的热门 50 首
+    // ── 艺人热歌 + cloudsearch 并行获取 ──
     const topArtists = profile.topArtists?.slice(0, 3) || [];
-    for (const artist of topArtists) {
-      try {
-        const searchRes = await callNetease('cloudsearch', { keywords: artist.name, limit: 1, type: 100 });
-        const artistId = searchRes?.result?.artists?.[0]?.id;
-        if (artistId) {
-          const topSongs = await callNetease('artist_top_song', { id: artistId });
-          if (topSongs?.songs?.length) {
-            addCandidates(topSongs.songs.slice(0, 15), 'artist_top');
-            log.log(`艺人热歌 [${artist.name}]: ${Math.min(15, topSongs.songs.length)} 首`);
-          }
-        }
-      } catch {}
-    }
-
-    // cloudsearch 多维搜索
     const genreKw = profile.topGenres?.slice(0, 3) || [];
     const hourSeed = Math.floor(Date.now() / 3600000);
     const moodSearch = moodToKeywords(mood);
@@ -559,15 +538,44 @@ export const recommendMusic = {
       ...topArtists.map(a => a.name),
       ...genreKw,
     ].filter(Boolean);
-    // 搜索 5 个维度
+
+    // 构建搜索 querie 列表（去重+选5个）
+    const selectedQueries = [];
+    const seenq = new Set();
     for (let si = 0; si < Math.min(5, searchQueries.length); si++) {
       const qi = (hourSeed + si * 3) % searchQueries.length;
       const q = searchQueries[qi];
-      try {
-        const extra = await callNetease('cloudsearch', { keywords: q, limit: 15, offset: (qi * 7 + hourSeed) % 25, type: 1 });
-        if (extra?.result?.songs?.length) addCandidates(extra.result.songs, 'search');
-      } catch {}
+      if (!seenq.has(q)) { seenq.add(q); selectedQueries.push({ idx: qi, q }); }
     }
+
+    // 艺人热歌 + cloudsearch 多维搜索 — 全部并行
+    const artistJobs = topArtists.map(async (artist) => {
+      try {
+        const searchRes = await callNetease('cloudsearch', { keywords: artist.name, limit: 1, type: 100 });
+        const artistId = searchRes?.result?.artists?.[0]?.id;
+        if (artistId) {
+          const topSongs = await callNetease('artist_top_song', { id: artistId });
+          if (topSongs?.songs?.length) {
+            addCandidates(topSongs.songs.slice(0, 15), 'artist_top');
+            log.log(`艺人热歌 [${artist.name}]: ${Math.min(15, topSongs.songs.length)} 首`);
+          }
+        }
+      } catch (e) { log.warn('操作失败', e?.message || e); }
+    });
+
+    const searchJobs = [];
+    for (let si = 0; si < Math.min(5, searchQueries.length); si++) {
+      const qi = (hourSeed + si * 3) % searchQueries.length;
+      const q = searchQueries[qi];
+      searchJobs.push((async () => {
+        try {
+          const extra = await callNetease('cloudsearch', { keywords: q, limit: 15, offset: (qi * 7 + hourSeed) % 25, type: 1 });
+          if (extra?.result?.songs?.length) addCandidates(extra.result.songs, 'search');
+        } catch (e) { log.warn('操作失败', e?.message || e); }
+      })());
+    }
+
+    await Promise.allSettled([...artistJobs, ...searchJobs]);
     log.log(`候选池: ${candidates.length} 首 (daily/fm/liked/toplist/new/personalized/artist_top/search)`);
 
     // 3. 排除最近播放过的（防重复）
@@ -609,7 +617,8 @@ export const recommendMusic = {
       `[${i + 1}] songId="${s.id}" songName="${s.name}" artist="${s.artist}"`
     );
     const playlistJson = JSON.stringify(best.map(s => ({ songId: s.id, name: s.name, artist: s.artist, cover: s.cover || '' })));
-    return `${reason}\n\n${lines.join('\n')}\n\n请调用 play_music(songId="${best[0].id}", songName="${best[0].name}", artist="${best[0].artist}")\nMUSIC_LIST ${playlistJson}`;
+    const np = `NOW_PLAYING {"songId":"${best[0].id}","name":"${(best[0].name||'').replace(/"/g,'\\"')}","artist":"${(best[0].artist||'').replace(/"/g,'\\"')}","cover":"${(best[0].cover||'').replace(/"/g,'\\"')}","reason":"${(reason||'为你播放').replace(/"/g,'\\"')}"}`;
+    return `${reason}，正在为你播放 ${best[0].name}\n\n${lines.join('\n')}\n\n${np}\nMUSIC_LIST ${playlistJson}`;
   },
 };
 
@@ -697,5 +706,48 @@ export const playSimilar = {
   },
 };
 
+const pauseMusic = {
+  name: 'pause_music',
+  description: '暂停当前音乐播放',
+  parameters: { type: 'object', properties: {}, required: [] },
+  async invoke() {
+    return 'MUSIC_PAUSE';
+  },
+};
+
+const resumeMusic = {
+  name: 'resume_music',
+  description: '恢复/继续播放暂停的音乐',
+  parameters: { type: 'object', properties: {}, required: [] },
+  async invoke() {
+    return 'MUSIC_RESUME';
+  },
+};
+
+const stopMusic = {
+  name: 'stop_music',
+  description: '停止音乐播放',
+  parameters: { type: 'object', properties: {}, required: [] },
+  async invoke() {
+    return 'MUSIC_STOP';
+  },
+};
+
+const setVolume = {
+  name: 'set_volume',
+  description: '调节音乐音量。参数 level: 0.0(静音) 到 1.0(最大)，如 0.5 表示一半音量',
+  parameters: {
+    type: 'object',
+    properties: {
+      level: { type: 'number', description: '音量，0.0~1.0' },
+    },
+    required: ['level'],
+  },
+  async invoke({ level }) {
+    const vol = Math.max(0, Math.min(1, Number(level) || 0.5));
+    return `MUSIC_VOLUME ${vol.toFixed(2)}`;
+  },
+};
+
 // 此文件被 index.js 导入时调用，传入 memory store
-export const musicTools = [searchMusic, recommendMusic, playMusic, playSimilar];
+export const musicTools = [searchMusic, recommendMusic, playMusic, playSimilar, pauseMusic, resumeMusic, stopMusic, setVolume];

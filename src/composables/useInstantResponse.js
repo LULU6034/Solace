@@ -1,79 +1,70 @@
 /**
- * instant-response.js — 即时语音反馈 (0ms 延迟)
+ * instant-response.js — 雾蓝风格即时语音反馈
  *
  * 用户说完 → 立即播放预合成短音频 → LLM 响应到达后无缝切换
+ * 预合成音频: 纯 Web Audio API，无网络/文件依赖
  *
- * 预合成音频: 使用 Web Audio API 生成，无需网络/文件加载
  * 类型:
- *   - ack: 短促确认音 (100ms) — 用户说完瞬间播放
- *   - thinking: 持续微弱音 (循环) — 表示正在思考
- *   - backchannel: "嗯" / "哦" — 自然反馈词
- *
- * 延迟分析:
- *   audioCtx.currentTime 精度: ~3ms
- *   oscillator.start(t): ~0ms (计划在 t 时刻开始)
- *   总用户感知延迟: <10ms
+ *   ack: 柔和的确认音 (80ms) — 用户说完瞬间播放
+ *   thinking_start: 持续微弱低频音 — 表示正在思考
+ *   error: 柔和低沉提示 — 出错
  */
 
 const TONES = {
   ack: {
-    // Soft rising "bliip" — 确认收到
-    duration: 0.12,
+    // 柔和双音 — 低→高，像轻触水晶杯
+    duration: 0.08,
     build(ac, t) {
       const osc = ac.createOscillator();
       const gain = ac.createGain();
       osc.connect(gain); gain.connect(ac.destination);
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(600, t);
-      osc.frequency.linearRampToValueAtTime(1200, t + 0.06);
-      osc.frequency.linearRampToValueAtTime(900, t + 0.12);
-      gain.gain.setValueAtTime(0.06, t);
-      gain.gain.linearRampToValueAtTime(0, t + 0.15);
-      osc.start(t); osc.stop(t + 0.15);
+      osc.frequency.setValueAtTime(520, t);
+      osc.frequency.linearRampToValueAtTime(780, t + 0.04);
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.04, t + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.10);
+      osc.start(t); osc.stop(t + 0.12);
     },
   },
   thinking_start: {
-    // Very soft low hum — 开始思考
+    // 极轻柔低吟
     duration: 0.5,
     build(ac, t) {
       const osc = ac.createOscillator();
       const gain = ac.createGain();
       osc.connect(gain); gain.connect(ac.destination);
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(220, t);
-      gain.gain.setValueAtTime(0.02, t);
-      gain.gain.linearRampToValueAtTime(0.04, t + 0.25);
-      gain.gain.linearRampToValueAtTime(0.02, t + 0.5);
+      osc.frequency.setValueAtTime(180, t);
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.025, t + 0.3);
+      gain.gain.linearRampToValueAtTime(0.015, t + 0.5);
       osc.start(t); osc.stop(t + 0.5);
     },
   },
   error: {
-    // Soft "bloop" — 出错提示
+    // 柔和低音下沉 — 不刺耳
     duration: 0.2,
     build(ac, t) {
       const osc = ac.createOscillator();
       const gain = ac.createGain();
       osc.connect(gain); gain.connect(ac.destination);
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(400, t);
-      osc.frequency.linearRampToValueAtTime(200, t + 0.15);
-      gain.gain.setValueAtTime(0.05, t);
-      gain.gain.linearRampToValueAtTime(0, t + 0.25);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(300, t);
+      osc.frequency.linearRampToValueAtTime(160, t + 0.15);
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.04, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
       osc.start(t); osc.stop(t + 0.25);
     },
   },
 };
 
-/**
- * Play an instant acknowledgment tone.
- * Returns immediately (schedules in Web Audio future).
- */
 import { getSharedAudioContext } from './useAudioContext.js';
 
 export function playInstantTone(type = 'ack') {
   try {
     const ac = getSharedAudioContext();
-
     const tone = TONES[type];
     if (tone) {
       tone.build(ac, ac.currentTime);
@@ -83,20 +74,14 @@ export function playInstantTone(type = 'ack') {
   }
 }
 
-/** Resume AudioContext (call in click handler to unlock audio) */
 export function unlockAudio() {
   getSharedAudioContext().resume();
 }
 
-/**
- * Speak a short pre-written phrase using SpeechSynthesis.
- * Blocks any currently-playing speech (interrupts).
- */
 export function speakInstant(text, rate = 1.2) {
   try {
     const synth = window.speechSynthesis;
 
-    // First call: check voice availability
     if (!speakInstant._voicesLoaded) {
       const voices = synth?.getVoices() || [];
       speakInstant._voice = voices.find(v => v.lang.startsWith('zh-CN') && v.localService)
@@ -105,10 +90,8 @@ export function speakInstant(text, rate = 1.2) {
         || voices[0];
       speakInstant._voicesLoaded = true;
       speakInstant._useServer = (voices.length === 0);
-      console.log('[speakInstant] voices:', voices.length, 'server fallback:', speakInstant._useServer);
     }
 
-    // 本地语音不可用 → 走 CosyVoice
     if (speakInstant._useServer) {
       window.electronAPI?.voiceTtsSynthesize?.(text, 'neutral', 'default_female', rate)
         .then(r => {
@@ -124,24 +107,16 @@ export function speakInstant(text, rate = 1.2) {
       return;
     }
 
-    // 本地语音
     if (synth && speakInstant._voice) {
-      console.log('[speakInstant] local speak:', text.slice(0, 30));
       synth.cancel();
       const u = new SpeechSynthesisUtterance(text);
       u.rate = rate; u.volume = 0.9; u.lang = 'zh-CN';
       u.voice = speakInstant._voice;
-      u.onstart = () => console.log('[speakInstant] local speak started');
-      u.onend = () => console.log('[speakInstant] local speak ended');
-      u.onerror = (e) => console.warn('[speakInstant] local speak error:', e.error);
       setTimeout(() => synth.speak(u), 50);
-    } else {
-      console.log('[speakInstant] no local voice available, no server fallback');
     }
-  } catch (e) { console.warn('[speakInstant] error:', e.message); }
+  } catch (e) {}
 }
 
-/** Pre-cache Chinese voice for instant use */
 export function preCacheVoice() {
   const voices = window.speechSynthesis?.getVoices() || [];
   speakInstant._voice = voices.find(v => v.lang.startsWith('zh-CN') && v.localService)
@@ -150,7 +125,6 @@ export function preCacheVoice() {
   return !!speakInstant._voice;
 }
 
-// Auto-cache on voice list change
 if (typeof window !== 'undefined') {
   window.speechSynthesis?.addEventListener?.('voiceschanged', preCacheVoice);
 }

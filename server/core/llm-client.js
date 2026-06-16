@@ -179,7 +179,13 @@ async function* _streamOpenAI(messages, options, abortSignal) {
     stream: true,
     stream_options: { include_usage: true },
   };
-  // DeepSeek reasoning_effort: max/none 控制推理链
+  // DeepSeek 思考模式控制：
+  // - thinking: { type: "enabled"|"disabled" } — 开/关思考链
+  // - reasoning_effort: "high"|"max" — 思考深度（low/medium 会被映射到 high）
+  // 参考: https://api-docs.deepseek.com/guides/thinking_mode
+  if (options.thinkingType) {
+    streamOptions.thinking = { type: options.thinkingType };
+  }
   if (options.reasoningEffort && options.reasoningEffort !== 'none') {
     streamOptions.reasoning_effort = options.reasoningEffort;
   }
@@ -203,7 +209,7 @@ async function* _streamOpenAI(messages, options, abortSignal) {
 
     const choice = chunk.choices?.[0];
     if (choice?.finish_reason && choice.finish_reason !== 'stop') {
-      console.log('[llm] finish_reason:', choice.finish_reason);
+      log.log('finish_reason:', choice.finish_reason);
     }
     const delta = choice?.delta;
     if (!delta) continue;
@@ -258,6 +264,9 @@ export function createLLM(config = {}) {
   const temperature = config.temperature ?? 0.7;
   const maxTokens = config.maxTokens || 8192;
   const reasoningEffort = config.reasoningEffort || '';
+  // thinkingType: "enabled" 开启思考链，"disabled" 关闭
+  // V4 模型默认 enabled，设为 disabled 才能真正关闭推理
+  const thinkingType = config.thinkingType || (reasoningEffort === 'none' ? 'disabled' : '');
 
   const providerConfig = {
     apiKey,
@@ -266,6 +275,7 @@ export function createLLM(config = {}) {
     temperature,
     maxTokens,
     reasoningEffort,
+    thinkingType,
   };
 
   return {

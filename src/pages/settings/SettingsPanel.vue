@@ -22,7 +22,7 @@
             <div class="avatar-circle" @click="pickAvatar" title="点击更换头像">
               <img v-if="userAvatar.startsWith('data:')" :src="userAvatar" class="avatar-img" />
               <div v-else class="avatar-geo" :style="{ background: avatarColor }">
-                <svg viewBox="0 0 40 40"><path d="M12 28 Q20 8 28 28" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" stroke-linecap="round"/><path d="M8 22 Q20 16 32 22" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="1.5" stroke-linecap="round"/><circle cx="20" cy="18" r="3" fill="rgba(255,255,255,0.3)"/></svg>
+                <svg viewBox="0 0 40 40"><path d="M12 28 Q20 8 28 28" fill="none" stroke="rgba(0,0,0,0.12)" stroke-width="1.5" stroke-linecap="round"/><path d="M8 22 Q20 16 32 22" fill="none" stroke="rgba(0,0,0,0.1)" stroke-width="1.5" stroke-linecap="round"/><circle cx="20" cy="18" r="3" fill="rgba(255,255,255,0.3)"/></svg>
               </div>
               <div class="avatar-overlay">📷</div>
             </div>
@@ -42,71 +42,72 @@
             <div class="profile-item" v-if="userProfile.occupation"><span class="profile-key">职业</span><span class="profile-value">{{ userProfile.occupation }}</span></div>
           </div>
 
-          <div class="setting-group">
-            <div class="memory-stats">
-              <span class="mem-stat">记忆 {{ memoryCount }} 条</span>
-              <button class="mem-clear-btn" @click="clearMemory" :disabled="memoryCount === 0">清空</button>
-            </div>
-          </div>
         </div>
 
         <!-- 服务商 -->
         <div v-if="activeCat === 'backend'" class="cat-content">
-          <div class="provider-cards">
-            <button v-for="p in providers" :key="p.id" class="provider-card" :class="{ active: provider === p.id }" @click="provider = p.id">
-              <span class="provider-card-icon" :style="{ background: p.color + '20' }">{{ p.icon }}</span>
-              <div class="provider-card-text">
-                <span class="provider-card-name">{{ p.name }}</span>
-                <span class="provider-card-desc">{{ p.desc }}</span>
-              </div>
-              <span v-if="provider === p.id" class="provider-card-check">✓</span>
+          <!-- 服务商选择：水平卡片 -->
+          <div class="provider-grid">
+            <button v-for="p in providers" :key="p.id"
+              class="provider-tile" :class="{ active: provider === p.id }"
+              @click="provider = p.id">
+              <span class="provider-tile-icon" :style="{ background: p.color + '18', color: p.color }" v-html="p.icon"></span>
+              <span class="provider-tile-name">{{ p.name }}</span>
+              <span class="provider-tile-desc">{{ p.desc }}</span>
+              <span v-if="provider === p.id" class="provider-tile-check">✓</span>
             </button>
           </div>
 
-          <div class="setting-group">
-            <label class="setting-label">主模型 API Key</label>
-            <input v-model="apiKey" type="password" class="setting-input" placeholder="sk-..." />
+          <!-- 模型选择（紧跟服务商） -->
+          <div v-if="provider === 'claude'" class="model-row">
+            <span class="model-row-label">模型</span>
+            <div class="model-chips">
+              <button v-for="m in claudeModels" :key="m.value" class="model-chip" :class="{ active: claudeModel === m.value }" @click="claudeModel = m.value">{{ m.label }}</button>
+            </div>
           </div>
-          <div class="setting-group">
-            <label class="setting-label">视觉识别 API Key <small style="color:var(--text-muted);font-weight:400">阿里云百炼 Qwen-VL</small></label>
-            <input v-model="visionApiKey" type="password" class="setting-input" placeholder="sk-...（可选）" />
+          <div v-if="provider === 'deepseek'" class="model-row">
+            <span class="model-row-label">模型</span>
+            <div class="model-chips">
+              <button v-for="m in deepseekModels" :key="m.value" class="model-chip" :class="{ active: deepseekModel === m.value }" @click="deepseekModel = m.value">{{ m.label }}</button>
+            </div>
           </div>
-          <div class="setting-group">
-            <label class="setting-label">语音合成 API Key <small style="color:var(--text-muted);font-weight:400">阿里云百炼 CosyVoice</small></label>
-            <input v-model="dashscopeApiKey" type="password" class="setting-input" placeholder="sk-...（可选）" />
-          </div>
-          <div class="setting-group">
-            <label class="setting-label">MiniMax TTS Key <small style="color:var(--color-primary);font-weight:500">推荐 — 情感表现力更强</small></label>
-            <input v-model="minimaxApiKey" type="password" class="setting-input" placeholder="sk-...（可选）" />
-          </div>
-
-          <div v-if="provider === 'claude'" class="model-chips">
-            <button v-for="m in claudeModels" :key="m.value" class="model-chip" :class="{ active: claudeModel === m.value }" @click="claudeModel = m.value">{{ m.label }}</button>
-          </div>
-          <div v-if="provider === 'deepseek'" class="model-chips">
-            <button v-for="m in deepseekModels" :key="m.value" class="model-chip" :class="{ active: deepseekModel === m.value }" @click="deepseekModel = m.value">{{ m.label }}</button>
-          </div>
-          <div v-if="provider === 'openai'" class="provider-config">
-            <input v-model="openaiBaseUrl" class="setting-input" placeholder="API 地址" />
-            <input v-model="openaiModel" class="setting-input" placeholder="模型名称" />
-          </div>
-
-          <div class="agent-status">
-            <div class="agent-status-header">
-              <span class="agent-status-dot" :class="{ online: agentReady }" />
-              <span class="agent-status-label">Agent</span>
-              <span v-if="agentReady" class="agent-status-text">就绪</span>
-              <span v-else-if="agentChecking" class="agent-status-text">检查中</span>
-              <span v-else class="agent-status-text offline">待启动</span>
+          <div v-if="provider === 'openai'" class="model-row">
+            <span class="model-row-label">接入</span>
+            <div class="provider-config-inline">
+              <input v-model="openaiBaseUrl" class="setting-input-inline" placeholder="API 地址" />
+              <input v-model="openaiModel" class="setting-input-inline" placeholder="模型名称" />
             </div>
           </div>
 
-          <p v-if="error" class="setting-error">{{ error }}</p>
-
-          <div class="setting-actions">
-            <button class="setting-btn primary" :disabled="!apiKey || saving" @click="save">{{ saving ? '连接中...' : '保存' }}</button>
-            <button class="setting-btn secondary" @click="testConn">测试</button>
+          <!-- API Keys：双列网格 -->
+          <div class="apikey-grid">
+            <div class="apikey-item">
+              <label class="apikey-label">主模型 Key</label>
+              <input v-model="apiKey" type="password" class="apikey-input" placeholder="sk-..." />
+            </div>
+            <div class="apikey-item">
+              <label class="apikey-label">视觉 Key <small>百炼 Qwen-VL</small></label>
+              <input v-model="visionApiKey" type="password" class="apikey-input" placeholder="可选" />
+            </div>
+            <div class="apikey-item">
+              <label class="apikey-label">语音 Key <small>百炼 CosyVoice</small></label>
+              <input v-model="dashscopeApiKey" type="password" class="apikey-input" placeholder="可选" />
+            </div>
+            <div class="apikey-item">
+              <label class="apikey-label">TTS Key <small class="text-accent">推荐</small></label>
+              <input v-model="minimaxApiKey" type="password" class="apikey-input" placeholder="可选" />
+            </div>
           </div>
+
+          <!-- 底部操作 -->
+          <div class="backend-footer">
+            <div class="setting-actions">
+              <button class="setting-btn secondary" @click="testConn">测试连接</button>
+              <button class="setting-btn primary" :disabled="!apiKey || saving" @click="save">{{ saving ? '连接中...' : '保存' }}</button>
+            </div>
+          </div>
+
+          <p v-if="connMessage" class="conn-banner" :class="connStatus">{{ connMessage }}</p>
         </div>
 
         <!-- 助手 -->
@@ -155,13 +156,6 @@
           </div>
           <button v-else class="agent-add-btn" @click="showAgentCreate = true">+ 新建角色</button>
 
-          <!-- 隐私 -->
-          <div class="sect-label" style="margin-top:14px">隐私</div>
-          <label class="setting-row">
-            <span class="setting-label">共享记忆<br><small style="color:var(--text-muted)">开启后所有角色共用同一份记忆</small></span>
-            <input v-model="sharedMemory" type="checkbox" class="setting-toggle" @change="toggleSharedMemory" />
-          </label>
-
         </div>
 
         <!-- 系统 -->
@@ -182,16 +176,6 @@
         </div>
 
         <!-- 关于 -->
-        <!-- 人格 -->
-        <div v-if="activeCat === 'personality'" class="cat-content">
-          <PersonalityPanel :isDark="isDark" />
-        </div>
-
-        <!-- 记忆 -->
-        <div v-if="activeCat === 'memory'" class="cat-content">
-          <MemoryPanel :isDark="isDark" @refresh="refreshMemory" />
-        </div>
-
         <!-- 音色 -->
         <div v-if="activeCat === 'voice'" class="cat-content">
           <VoiceClonePanel :isDark="isDark" />
@@ -205,6 +189,11 @@
         <!-- 隐私 -->
         <div v-if="activeCat === 'privacy'" class="cat-content">
           <PrivacyPanel :isDark="isDark" />
+        </div>
+
+        <div v-if="activeCat === 'skills'" class="cat-content">
+          <h3 class="cat-title">Skills</h3>
+          <SkillSettingsPanel />
         </div>
 
         <div v-if="activeCat === 'about'" class="cat-content">
@@ -248,23 +237,21 @@ import { ref, watch, onMounted } from 'vue'
 const emit = defineEmits(['done'])
 
 // 分类
-import { User, Zap, Bot, Settings, Info, Brain, Shield, Mic, HardDrive, Music } from 'lucide-vue-next'
-import MemoryPanel from '../memory/MemoryPanel.vue'
-import PersonalityPanel from '../personality/PersonalityPanel.vue'
+import { User, Zap, Bot, Settings, Info, Shield, Mic, Music, Puzzle } from 'lucide-vue-next'
 import PrivacyPanel from './PrivacyPanel.vue'
 import VoiceClonePanel from '../voice/VoiceClonePanel.vue'
 import MusicPanel from '../music/MusicPanel.vue'
+import SkillSettingsPanel from './SkillSettingsPanel.vue'
 
 const categories = [
   { id: 'profile',     icon: User,     label: '用户',   color: '#6366F1' },
   { id: 'backend',     icon: Zap,      label: '服务商', color: '#3B82F6' },
-  { id: 'personality', icon: Brain,    label: '人格',   color: '#8B5CF6' },
   { id: 'pet',         icon: Bot,      label: '助手',   color: '#EC4899' },
-  { id: 'memory',      icon: HardDrive, label: '记忆',  color: '#F59E0B' },
   { id: 'voice',       icon: Mic,      label: '音色',   color: '#10B981' },
   { id: 'music',       icon: Music,    label: '音乐',   color: '#EC4141' },
   { id: 'system',      icon: Settings, label: '系统',   color: '#6B7280' },
   { id: 'privacy',     icon: Shield,   label: '隐私',   color: '#EF4444' },
+  { id: 'skills',      icon: Puzzle,   label: 'Skills', color: '#F59E0B' },
   { id: 'about',       icon: Info,     label: '关于',   color: '#6B7280' },
 ]
 const activeCat = ref('profile')
@@ -302,9 +289,9 @@ const provider = ref('claude')
 
 // 服务商卡片
 const providers = [
-  { id: 'claude',   icon: '🦞', color: '#B7A48E', name: 'Claude',   desc: 'Anthropic · 深度推理' },
-  { id: 'deepseek', icon: '☁️', color: '#9BB7AA', name: 'DeepSeek', desc: '高性价比 · 中文出色' },
-  { id: 'openai',   icon: '⌨️', color: '#9DC0AF', name: 'OpenAI',   desc: '兼容接口 · 灵活配置' },
+  { id: 'claude',   icon: '<svg viewBox="0 0 24 24" fill="none" stroke="#D97757" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg>', color: '#D97757', name: 'Claude',   desc: 'Anthropic · 深度推理' },
+  { id: 'deepseek', icon: '<svg viewBox="0 0 24 24" fill="#4C6EF5" style="width:16px;height:16px"><path d="M12 2l9 5v10l-9 5-9-5V7z"/></svg>', color: '#4C6EF5', name: 'DeepSeek', desc: '高性价比 · 中文出色' },
+  { id: 'openai',   icon: '<svg viewBox="0 0 24 24" fill="none" stroke="#10A37F" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>', color: '#10A37F', name: 'OpenAI',   desc: '兼容接口 · 灵活配置' },
 ]
 const claudeModel = ref('claude-sonnet-4-20250506')
 const deepseekModel = ref('deepseek-chat')
@@ -312,7 +299,9 @@ const openaiModel = ref('gpt-4o')
 const openaiBaseUrl = ref('https://api.openai.com/v1')
 const userProfile = ref({})
 const saving = ref(false)
-const error = ref(null)
+const connStatus = ref('') // 'success' | 'error'
+const connMessage = ref('')
+const error = ref(null) // 保留给 save 的异常兜底
 
 // 用户设置: 头像 + 称呼
 const userAvatar = ref(localStorage.getItem('user-avatar') || '')
@@ -412,15 +401,6 @@ const activeExpertCount = ref(0)
   } catch { agentReady.value = false }
   finally { agentChecking.value = false }
 })()
-
-async function clearMemory() {
-  try {
-    await window.electronAPI?.agentClearMemory()
-    memoryCount.value = 0
-    error.value = '记忆已清空 ✓'
-    setTimeout(() => { error.value = null }, 2000)
-  } catch { error.value = '清空失败' }
-}
 
 // 模型选项
 const claudeModels = [
@@ -537,13 +517,6 @@ async function deleteAgent(id) {
   } catch (e) { console.error(e) }
 }
 
-// 隐私
-const sharedMemory = ref(localStorage.getItem('shared-memory') === 'true')
-function toggleSharedMemory() {
-  localStorage.setItem('shared-memory', sharedMemory.value ? 'true' : 'false')
-  window.electronAPI?.agentToggleSharedMemory(sharedMemory.value)
-}
-
 const appTheme = ref(localStorage.getItem('app-theme') || 'system')
 const themes = [
   { label: '浅色', value: 'light', icon: '☀️' },
@@ -564,10 +537,6 @@ function applyTheme(theme) {
   document.documentElement.classList.toggle('dark', isDark.value)
 }
 
-function refreshMemory() {
-  memoryCount.value = parseInt(localStorage.getItem('memory-count') || '0', 10)
-}
-
 // 初始化主题
 applyTheme(appTheme.value)
 // 监听系统主题变化
@@ -576,14 +545,12 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 })
 
 async function save() {
-  saving.value = true; error.value = null
+  saving.value = true; connMessage.value = ''; error.value = null
   try {
     const { llmService } = await import('../../llm/LLMProvider')
     const { useLLMStore } = await import('../../store/llmStore')
 
-    let model = claudeModel.value
-    if (provider.value === 'deepseek') model = deepseekModel.value
-    else if (provider.value === 'openai') model = openaiModel.value
+    const model = getSelectedModel()
 
     const config = {
       provider: provider.value,
@@ -612,9 +579,7 @@ async function save() {
 // 立即持久化配置
 function doSave() {
   if (!apiKey.value) return
-  let model = claudeModel.value
-  if (provider.value === 'deepseek') model = deepseekModel.value
-  else if (provider.value === 'openai') model = openaiModel.value
+  const model = getSelectedModel()
   const cfg = { provider: provider.value, apiKey: apiKey.value, visionApiKey: visionApiKey.value || '', dashscopeApiKey: dashscopeApiKey.value || '', minimaxApiKey: minimaxApiKey.value || '', model, baseUrl: provider.value === 'openai' ? openaiBaseUrl.value : undefined }
   window.electronAPI?.saveConfig(cfg)
   localStorage.setItem('llm-config', JSON.stringify(cfg))
@@ -628,17 +593,22 @@ function autoSave() {
   clearTimeout(_saveTimer)
   _saveTimer = setTimeout(doSave, 500)
 }
+// 统一的模型选择逻辑（避免 save/doSave/testConn 三处重复）
+function getSelectedModel() {
+  if (provider.value === 'deepseek') return deepseekModel.value
+  if (provider.value === 'openai') return openaiModel.value
+  return claudeModel.value
+}
+
 // provider 和 model 切换立即保存（用户点击选择，不需要防抖）
-watch([provider, claudeModel, deepseekModel, openaiModel], () => doSave())
+watch([provider, claudeModel, deepseekModel, openaiModel], () => { connMessage.value = ''; doSave() })
 // apiKey 等文本输入使用防抖
-watch([apiKey, openaiBaseUrl, visionApiKey, dashscopeApiKey, minimaxApiKey], autoSave)
+watch([apiKey, openaiBaseUrl, visionApiKey, dashscopeApiKey, minimaxApiKey], () => { connMessage.value = ''; autoSave() })
 
 async function testConn() {
-  error.value = null; saving.value = true
+  connMessage.value = ''; saving.value = true
   try {
-    let model = claudeModel.value
-    if (provider.value === 'deepseek') model = deepseekModel.value
-    else if (provider.value === 'openai') model = openaiModel.value
+    const model = getSelectedModel()
 
     const result = await window.electronAPI?.llmInit?.({
       provider: provider.value,
@@ -648,11 +618,19 @@ async function testConn() {
       model,
       baseUrl: provider.value === 'openai' ? openaiBaseUrl.value : undefined,
     })
-    error.value = result?.success ? '连接成功 ✓' : `连接失败: ${result?.error || '未知错误'}`
+    if (result?.success) {
+      connStatus.value = 'success'
+      connMessage.value = '已连接'
+    } else {
+      connStatus.value = 'error'
+      connMessage.value = result?.error || '连接失败'
+    }
   } catch (e) {
-    error.value = `连接失败: ${e}`
+    connStatus.value = 'error'
+    connMessage.value = String(e)
   } finally {
     saving.value = false
+    setTimeout(() => { connMessage.value = '' }, 4000)
   }
 }
 
@@ -764,50 +742,182 @@ input:focus, select:focus, textarea:focus, .setting-input:focus {
 .setting-textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); background: var(--bg-card); }
 .setting-error { font-size: 12px; color: var(--danger); }
 
-.setting-actions { display: flex; gap: 10px; margin-top: 12px; }
+.setting-actions {
+  display: flex; gap: 12px; width: 100%;
+}
+.setting-actions .setting-btn {
+  flex: 1;
+}
 .setting-btn {
-  padding: 10px 22px; border-radius: 10px; border: 1px solid var(--border);
+  padding: 11px 24px; border-radius: 10px; border: 1.5px solid var(--border);
   background: var(--bg-card); cursor: pointer; font-family: inherit; font-size: 13.5px;
-  font-weight: 500; color: var(--text-secondary); transition: all 0.18s cubic-bezier(.16,1,.3,1);
+  font-weight: 500; color: var(--text-secondary);
+  transition: all 0.2s cubic-bezier(.16,1,.3,1);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
 }
-.setting-btn:hover { background: var(--bg-sidebar-hover); color: var(--text-primary); transform: translateY(-1px); }
-.setting-btn:active { transform: scale(.98); }
-.setting-btn:disabled { opacity: 0.35; cursor: default; transform: none; }
-.setting-btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
-.setting-btn.primary:hover { filter: brightness(1.12); box-shadow: 0 4px 14px rgba(109,124,255,0.25); }
-.setting-btn.secondary { background: var(--bg-card); }
+.setting-btn:hover {
+  background: var(--bg-sidebar-hover); color: var(--text-primary);
+  border-color: var(--border-strong);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.setting-btn:active { transform: scale(0.97); }
+.setting-btn:disabled { opacity: 0.3; cursor: default; transform: none; box-shadow: none; }
+.setting-btn.primary {
+  background: var(--accent); color: #fff; border-color: var(--accent);
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(109,124,255,0.15);
+}
+.setting-btn.primary:hover {
+  filter: brightness(1.1);
+  box-shadow: 0 4px 16px rgba(109,124,255,0.3);
+}
+.setting-btn.primary:disabled { filter: none; box-shadow: none; }
+.setting-btn.secondary {
+  background: var(--bg-card); border-color: var(--border);
+  color: var(--text-secondary);
+}
+.setting-btn.secondary:hover {
+  background: var(--bg-sidebar-hover); color: var(--text-primary);
+}
 
-/* Provider */
-.provider-cards { display: flex; flex-direction: column; gap: 8px; }
-.provider-card {
+/* ── 服务商 ── */
+
+/* 水平三列 */
+.provider-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+}
+.provider-tile {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 16px 12px 14px; border-radius: 12px;
+  border: 1.5px solid var(--border);
+  background: var(--bg-card); cursor: pointer;
+  transition: all 0.2s cubic-bezier(.16,1,.3,1);
+  position: relative;
+}
+.provider-tile:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-sidebar-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+.provider-tile.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.provider-tile-icon {
+  width: 44px; height: 44px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.2s;
+}
+.provider-tile:hover .provider-tile-icon { transform: scale(1.08); }
+.provider-tile-icon :deep(svg) { width: 22px; height: 22px; }
+.provider-tile-name {
+  font-size: 14px; font-weight: 600; color: var(--text-primary);
+}
+.provider-tile-desc {
+  font-size: 11px; color: var(--text-muted); text-align: center; line-height: 1.4;
+}
+.provider-tile-check {
+  position: absolute; top: 8px; right: 10px;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--accent); color: #fff; font-size: 11px;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* 模型行 */
+.model-row {
   display: flex; align-items: center; gap: 12px;
-  padding: 12px 16px; border-radius: 10px;
-  border: 1px solid var(--border); background: var(--bg-card);
-  cursor: pointer; transition: all 0.18s cubic-bezier(.16,1,.3,1); text-align: left;
+  padding: 10px 14px; border-radius: 10px;
+  background: var(--bg-sidebar); border: 1px solid var(--border);
 }
-.provider-card:hover { border-color: var(--border-strong); background: var(--bg-sidebar-hover); transform: translateY(-1px); }
-.provider-card.active { border-color: var(--accent); background: var(--accent-soft); }
-.provider-card-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; }
-.provider-card-text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
-.provider-card-name { font-size: 13.5px; font-weight: 600; color: var(--text-primary); }
-.provider-card-desc { font-size: 11.5px; color: var(--text-muted); }
-.provider-card-check { color: var(--accent); font-size: 16px; }
+.model-row-label {
+  font-size: 12.5px; font-weight: 600; color: var(--text-secondary);
+  flex-shrink: 0; min-width: 36px;
+}
+.provider-config-inline {
+  display: flex; gap: 8px; flex: 1;
+}
+.setting-input-inline {
+  flex: 1; padding: 8px 12px; border-radius: 8px;
+  border: 1px solid var(--border); font-size: 12.5px; font-family: inherit;
+  background: var(--bg-input); color: var(--text-primary); outline: none;
+  transition: border-color 0.2s;
+}
+.setting-input-inline:focus { border-color: var(--accent); }
 
+/* 模型 chips */
 .model-chips { display: flex; gap: 8px; flex-wrap: wrap; }
 .model-chip {
-  padding: 7px 16px; border-radius: 10px; border: 1px solid var(--border);
-  background: var(--bg-card); cursor: pointer; font-size: 12.5px; font-weight: 500; font-family: inherit;
-  color: var(--text-secondary); transition: all 0.18s cubic-bezier(.16,1,.3,1);
+  padding: 8px 18px; border-radius: 10px;
+  border: 1.5px solid var(--border);
+  background: var(--bg-card); cursor: pointer;
+  font-size: 13px; font-weight: 500; font-family: inherit;
+  color: var(--text-secondary);
+  transition: all 0.2s cubic-bezier(.16,1,.3,1);
+  letter-spacing: 0.01em;
 }
-.model-chip:hover { background: var(--bg-sidebar-hover); color: var(--text-primary); transform: translateY(-1px); }
-.model-chip:active { transform: scale(.97); }
-.model-chip.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.model-chip:hover {
+  background: var(--bg-sidebar-hover); color: var(--text-primary);
+  border-color: var(--border-strong);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+}
+.model-chip:active { transform: scale(0.96); }
+.model-chip.active {
+  background: var(--accent-soft); border-color: var(--accent);
+  color: var(--accent); font-weight: 600;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
 
-.provider-config {
-  display: flex; flex-direction: column; gap: 10px;
-  padding: 14px; background: var(--bg-sidebar);
-  border-radius: 10px; border: 1px solid var(--border);
+/* API Key 双列 */
+.apikey-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
 }
+.apikey-item {
+  display: flex; flex-direction: column; gap: 5px;
+}
+.apikey-label {
+  font-size: 12px; font-weight: 600; color: var(--text-secondary);
+  display: flex; align-items: baseline; gap: 6px;
+}
+.apikey-label small {
+  font-size: 10.5px; font-weight: 400; color: var(--text-muted);
+}
+.apikey-label small.text-accent { color: var(--accent); font-weight: 500; }
+.apikey-input {
+  width: 100%; padding: 9px 12px; border-radius: 8px;
+  border: 1px solid var(--border); font-size: 12.5px; font-family: inherit;
+  background: var(--bg-input); color: var(--text-primary); outline: none;
+  transition: border-color 0.2s;
+}
+.apikey-input:hover { border-color: var(--border-strong); }
+.apikey-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* 底部操作栏 */
+.backend-footer {
+  display: flex; align-items: center; justify-content: flex-end;
+  padding-top: 6px;
+}
+
+/* 连接状态横幅 */
+.conn-banner {
+  margin: 0; padding: 10px 16px; border-radius: 10px;
+  font-size: 13px; font-weight: 500;
+  display: flex; align-items: center; gap: 8px;
+  animation: bannerIn 0.3s cubic-bezier(.16,1,.3,1);
+}
+.conn-banner.success {
+  background: rgba(52,199,89,0.08);
+  border: 1px solid rgba(52,199,89,0.2);
+  color: #248a45;
+}
+.conn-banner.error {
+  background: rgba(239,68,68,0.06);
+  border: 1px solid rgba(239,68,68,0.15);
+  color: #d63c3c;
+}
+@keyframes bannerIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
 
 /* Personality */
 .personality-grid { display: flex; flex-direction: column; gap: 5px; }
@@ -824,13 +934,17 @@ input:focus, select:focus, textarea:focus, .setting-input:focus {
 .personality-desc { font-size: 11.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .personality-check { color: var(--accent); font-size: 14px; flex-shrink: 0; }
 .personality-del {
-  width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border);
-  background: var(--bg-card); cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); transition: all 0.15s;
+  width: 28px; height: 28px; border-radius: 8px; border: 1.5px solid var(--border);
+  background: var(--bg-card); cursor: pointer; font-size: 13px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted); transition: all 0.2s;
 }
-.personality-del:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
+.personality-del:hover { border-color: var(--danger); color: var(--danger); background: rgba(239,68,68,0.06); }
 .personality-add-btn {
-  padding: 8px 14px; border: 1.5px dashed var(--border); border-radius: 10px;
-  background: none; cursor: pointer; font-size: 12.5px; font-family: inherit; color: var(--text-muted); transition: all 0.18s;
+  padding: 10px 16px; border: 1.5px dashed var(--border); border-radius: 10px;
+  background: none; cursor: pointer; font-size: 13px; font-family: inherit;
+  color: var(--text-muted); font-weight: 500;
+  transition: all 0.2s cubic-bezier(.16,1,.3,1);
 }
 .personality-add-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 
@@ -840,11 +954,20 @@ input:focus, select:focus, textarea:focus, .setting-input:focus {
 /* Style chips */
 .style-chips { display: flex; gap: 8px; flex-wrap: wrap; }
 .style-chip {
-  padding: 8px 16px; border-radius: 10px; border: 1px solid var(--border);
-  background: var(--bg-card); cursor: pointer; font-size: 12.5px; font-family: inherit;
-  color: var(--text-secondary); transition: all 0.18s cubic-bezier(.16,1,.3,1);
+  padding: 9px 18px; border-radius: 10px;
+  border: 1.5px solid var(--border);
+  background: var(--bg-card); cursor: pointer;
+  font-size: 13px; font-family: inherit;
+  color: var(--text-secondary);
+  transition: all 0.2s cubic-bezier(.16,1,.3,1);
+  letter-spacing: 0.01em;
 }
-.style-chip:hover { border-color: var(--border-strong); background: var(--bg-sidebar-hover); transform: translateY(-1px); }
+.style-chip:hover {
+  border-color: var(--border-strong); background: var(--bg-sidebar-hover);
+  color: var(--text-primary);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+}
+.style-chip:active { transform: scale(0.96); }
 .custom-form { margin-top: 10px; padding: 14px; background: var(--bg-sidebar); border: 1px solid var(--border); border-radius: 10px; display: flex; flex-direction: column; gap: 10px; }
 .custom-form-hint { font-size: 11.5px; color: var(--text-secondary); line-height: 1.65; margin: 8px 0; padding: 12px 14px; background: var(--bg-sidebar-hover); border-radius: 10px; }
 .custom-form-hint b { color: var(--text-primary); font-weight: 600; }
@@ -953,21 +1076,72 @@ input:focus, select:focus, textarea:focus, .setting-input:focus {
 .avatar-geo-svg { width: 100%; height: 100%; }
 .profile-name { font-size: 19px; font-weight: 700; color: var(--text-primary); letter-spacing: -.2px; }
 .profile-upload-btn {
-  padding: 6px 16px; border-radius: 10px; border: 1px solid var(--border);
-  background: var(--bg-card); cursor: pointer; font-size: 12.5px; font-family: inherit;
-  color: var(--text-secondary); transition: all 0.18s cubic-bezier(.16,1,.3,1);
+  padding: 7px 18px; border-radius: 10px;
+  border: 1.5px solid var(--border);
+  background: var(--bg-card); cursor: pointer;
+  font-size: 13px; font-family: inherit;
+  color: var(--text-secondary); font-weight: 500;
+  transition: all 0.2s cubic-bezier(.16,1,.3,1);
 }
-.profile-upload-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); transform: translateY(-1px); }
+.profile-upload-btn:hover {
+  border-color: var(--accent); color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 2px 8px rgba(109,124,255,0.1);
+}
 
-/* Agent row badge & create */
+/* Agent 列表 */
+.agent-list { display: flex; flex-direction: column; gap: 6px; }
+.agent-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--bg-card);
+  transition: all 0.2s;
+}
+.agent-row:hover { border-color: var(--border-strong); background: var(--bg-sidebar-hover); }
+.agent-row.active { border-color: var(--accent); background: var(--accent-soft); }
+.agent-row-icon { font-size: 20px; flex-shrink: 0; }
+.agent-row-info { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.agent-row-name { font-size: 13.5px; font-weight: 600; color: var(--text-primary); }
+.agent-row-meta { font-size: 11.5px; color: var(--text-muted); }
 .agent-row-badge {
   display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px;
   background: var(--accent-soft); color: var(--accent); font-weight: 600;
   margin-left: 6px; vertical-align: middle;
 }
+.agent-row-btn {
+  padding: 6px 16px; border-radius: 8px; border: 1.5px solid var(--accent);
+  background: var(--accent-soft); color: var(--accent);
+  cursor: pointer; font-size: 12px; font-weight: 600; font-family: inherit;
+  transition: all 0.2s cubic-bezier(.16,1,.3,1);
+}
+.agent-row-btn:hover {
+  background: var(--accent); color: #fff;
+  box-shadow: 0 2px 8px rgba(109,124,255,0.2);
+}
+.agent-row-del {
+  width: 28px; height: 28px; border-radius: 8px; border: 1.5px solid var(--border);
+  background: var(--bg-card); cursor: pointer; font-size: 13px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted); transition: all 0.2s;
+}
+.agent-row-del:hover { border-color: var(--danger); color: var(--danger); background: rgba(239,68,68,0.06); }
+.agent-add-btn {
+  padding: 10px; border-radius: 10px; border: 1.5px dashed var(--border);
+  background: none; cursor: pointer; font-size: 13px; font-family: inherit;
+  color: var(--text-muted); font-weight: 500;
+  transition: all 0.2s cubic-bezier(.16,1,.3,1);
+}
+.agent-add-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 .agent-create {
   display: flex; gap: 8px; align-items: center;
 }
+
+/* Save 消息 */
+.save-msg {
+  font-size: 12.5px; color: var(--success); font-weight: 500;
+  margin-left: 10px; animation: fadeIn .3s;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
 /* Utility */
 .setting-error { font-size: 12px; color: var(--danger); margin: 4px 0; }

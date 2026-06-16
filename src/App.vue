@@ -33,7 +33,6 @@
       <GroupChatPage v-else-if="activeView === 'groupchat'" />
       <VoiceChat v-else-if="activeView === 'voice'" />
       <RolesPage v-else-if="activeView === 'roles'" @openSettings="showSettings = true" />
-      <MemoryGraphPage v-else-if="activeView === 'memory'" />
       <KnowledgePage v-else-if="activeView === 'knowledge'" />
     </div>
 
@@ -41,20 +40,17 @@
       <SettingsPanel v-if="showSettings" @done="showSettings = false" />
     </Transition>
 
-    <ConflictDialog ref="conflictDlg" />
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { MessageCircle, Users, Settings, Sparkles, Mic, Brain, Database } from 'lucide-vue-next'
+import { MessageCircle, Users, Settings, Sparkles, Mic, Database } from 'lucide-vue-next'
 import ChatPage from './pages/chat/ChatPage.vue'
 import GroupChatPage from './pages/chat/GroupChatPage.vue'
 import VoiceChat from './pages/voice/VoiceChat.vue'
 import RolesPage from './pages/roles/RolesPage.vue'
 import TopMiniPlayer from './pages/music/TopMiniPlayer.vue'
-import ConflictDialog from './pages/memory/ConflictDialog.vue'
-import MemoryGraphPage from './pages/memory/MemoryGraphPage.vue'
 import KnowledgePage from './pages/knowledge/KnowledgePage.vue'
 import SettingsPanel from './pages/settings/SettingsPanel.vue'
 
@@ -85,7 +81,6 @@ const menuItems = [
   { id: 'groupchat', icon: Sparkles, label: '群聊' },
   { id: 'voice', icon: Mic, label: '语音' },
   { id: 'roles', icon: Users, label: '角色' },
-  { id: 'memory', icon: Brain, label: '记忆' },
   { id: 'knowledge', icon: Database, label: '知识库' },
 ]
 
@@ -96,8 +91,6 @@ function switchView(id) {
 // ── 全局状态 ──
 const showSettings = ref(false)
 const agentOnline = ref(false)
-const conflictDlg = ref(null)
-
 // Health check
 let healthInterval = setInterval(async () => {
   try { const r = await window.electronAPI?.agentPing(); agentOnline.value = !!r?.ready }
@@ -106,15 +99,11 @@ let healthInterval = setInterval(async () => {
 ;(async () => { try { const r = await window.electronAPI?.agentPing(); agentOnline.value = !!r?.ready } catch {} })()
 
 // ── Lifecycle ──
-let unsubMax, unsubConflict
+let unsubMax
 onMounted(async () => {
   // 窗口最大化状态监听
   unsubMax = window.electronAPI?.onWindowMaximizedChange(({ maximized }) => {
     document.body.classList.toggle('window-maximized', maximized)
-  })
-  // 记忆冲突对话框
-  unsubConflict = window.electronAPI?.onMemoryConflict?.((conflicts) => {
-    conflictDlg.value?.show(conflicts)
   })
   // 初始化主题
   const theme = localStorage.getItem('app-theme') || 'system'
@@ -138,7 +127,6 @@ onMounted(async () => {
 
 onUnmounted(() => {
   unsubMax?.()
-  unsubConflict?.()
   clearInterval(healthInterval)
 })
 </script>

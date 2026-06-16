@@ -1,14 +1,10 @@
 /**
- * Ambient Sound — Web Audio 合成的环境音效
+ * Ambient Sound — 雾蓝风格环境音效
  *
  * 零文件依赖，纯 Web Audio API 合成。
- *
- * 用法:
- *   import { AmbientSound } from './ambient-sound.js'
- *   const ambient = new AmbientSound()
- *   ambient.start('idle')
- *   ambient.transition('thinking')
- *   ambient.stop()
+ * idle: 以太风 — 极低频正弦波 + 慢 LFO，像远处风声
+ * listening: 柔铃 — 散开的柔和正弦短音
+ * thinking: 轻脉 — 极轻柔的低频脉冲，像心跳
  */
 
 import { getSharedAudioContext } from './useAudioContext.js';
@@ -19,7 +15,6 @@ class AmbientSound {
     this.masterGain = null;
     this.activeNodes = [];
     this.mode = null;
-    this._initOnInteraction = null;
   }
 
   _ensureContext() {
@@ -38,13 +33,12 @@ class AmbientSound {
     this.mode = mode;
 
     switch (mode) {
-      case 'idle': this._fireplace(); break;
-      case 'listening': this._windChime(); break;
-      case 'thinking': this._lowHum(); break;
-      case 'error': this._lowBell(); break;
+      case 'idle': this._etherWind(); break;
+      case 'listening': this._softChime(); break;
+      case 'thinking': this._gentlePulse(); break;
+      case 'error': this._softBell(); break;
     }
 
-    // Fade in
     this.masterGain.gain.setTargetAtTime(1, this.ac.currentTime, 1.5);
   }
 
@@ -79,115 +73,125 @@ class AmbientSound {
   //  Sound generators
   // ═══════════════════════════════════════
 
-  _fireplace() {
-    // Filtered white noise with random crackle bursts
+  _etherWind() {
+    // 极低频正弦波 + 慢 LFO 调制，像远处微风
     const now = this.ac.currentTime;
-    const duration = 999; // effectively infinite
 
-    // Base noise (gentle rumble)
-    const bufSize = this.ac.sampleRate * 2;
-    const noiseBuf = this.ac.createBuffer(1, bufSize, this.ac.sampleRate);
-    const data = noiseBuf.getChannelData(0);
-    for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
-    const noise = this.ac.createBufferSource();
-    noise.buffer = noiseBuf;
-    noise.loop = true;
-
-    // Low-pass filter for warmth
-    const lp = this.ac.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = 600;
-    lp.Q.value = 0.5;
-
-    const gain = this.ac.createGain();
-    gain.gain.value = 0.06;
-
-    noise.connect(lp).connect(gain).connect(this.masterGain);
-    noise.start(now);
-    this._addNode(noise, lp, gain);
-
-    // Periodic crackle (every 0.3-1.5s random burst)
-    const crackleTimer = setInterval(() => {
-      if (this.mode !== 'idle') return;
-      const burst = this.ac.createBufferSource();
-      const blen = this.ac.sampleRate * 0.04;
-      const bdata = this.ac.createBuffer(1, blen, this.ac.sampleRate).getChannelData(0);
-      for (let i = 0; i < blen; i++) {
-        bdata[i] = Math.random() * 2 - 1;
-        // Shaped envelope: sharp attack, quick decay
-        bdata[i] *= Math.exp(-i / (this.ac.sampleRate * 0.015));
-      }
-      burst.buffer = this.ac.createBuffer(1, blen, this.ac.sampleRate);
-      burst.buffer.getChannelData(0).set(bdata);
-
-      const bg = this.ac.createGain();
-      bg.gain.value = 0.25 + Math.random() * 0.15;
-      burst.connect(bg).connect(this.masterGain);
-      burst.start();
-      burst.onended = () => { burst.disconnect(); bg.disconnect(); };
-    }, 400 + Math.random() * 800);
-
-    this._timers = this._timers || [];
-    this._timers.push(crackleTimer);
-  }
-
-  _windChime() {
-    // Two quick sine tones with decay — like a wind chime
-    const now = this.ac.currentTime;
-    const freqs = [1200, 1600, 2100];
-    for (const f of freqs) {
-      const osc = this.ac.createOscillator();
-      osc.type = 'sine';
-      osc.frequency.value = f;
-      const gain = this.ac.createGain();
-      gain.gain.setValueAtTime(0.08, now + Math.random() * 0.1);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
-      osc.connect(gain).connect(this.masterGain);
-      osc.start(now);
-      osc.stop(now + 1.3);
-      osc.onended = () => { osc.disconnect(); gain.disconnect(); };
-    }
-  }
-
-  _lowHum() {
-    // Very low sustained hum — creates thinking atmosphere
-    const now = this.ac.currentTime;
+    // 基频 — 极低，几乎听不到，提供"存在感"
     const osc = this.ac.createOscillator();
     osc.type = 'sine';
-    osc.frequency.value = 55; // Low A
+    osc.frequency.value = 38;
 
+    // LFO 调制频率 — 慢速起伏
+    const lfo = this.ac.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = 0.12; // 8秒一个周期
+    const lfoGain = this.ac.createGain();
+    lfoGain.gain.value = 3; // ±3Hz 偏移
+    lfo.connect(lfoGain).connect(osc.frequency);
+
+    // 泛音 — 轻微的第二频段
     const osc2 = this.ac.createOscillator();
     osc2.type = 'sine';
-    osc2.frequency.value = 82; // Slightly detuned
+    osc2.frequency.value = 56;
+    const lfo2 = this.ac.createOscillator();
+    lfo2.type = 'sine';
+    lfo2.frequency.value = 0.09;
+    const lfoGain2 = this.ac.createGain();
+    lfoGain2.gain.value = 2;
+    lfo2.connect(lfoGain2).connect(osc2.frequency);
+
+    // 低通滤波
+    const lp = this.ac.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 120;
+    lp.Q.value = 0.3;
 
     const gain = this.ac.createGain();
     gain.gain.value = 0.04;
 
-    const lp = this.ac.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = 200;
+    osc.connect(lp);
+    osc2.connect(lp);
+    lp.connect(gain).connect(this.masterGain);
 
-    osc.connect(gain);
-    osc2.connect(gain);
-    gain.connect(lp).connect(this.masterGain);
-    osc.start(now);
-    osc2.start(now);
-    this._addNode(osc, osc2, gain, lp);
+    osc.start(now); osc2.start(now);
+    lfo.start(now); lfo2.start(now);
+
+    this._addNode(osc, osc2, lfo, lfo2, lfoGain, lfoGain2, lp, gain);
   }
 
-  _lowBell() {
-    // Low bell tone — error notification
+  _softChime() {
+    // 柔和散开的几个正弦短音 — 冰晶轻碰
+    const now = this.ac.currentTime;
+    const freqs = [880, 1100, 1320];
+    for (let i = 0; i < freqs.length; i++) {
+      const osc = this.ac.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = freqs[i];
+      const gain = this.ac.createGain();
+      const t = now + i * 0.08;
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.05, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
+      osc.connect(gain).connect(this.masterGain);
+      osc.start(t);
+      osc.stop(t + 0.9);
+      osc.onended = () => { osc.disconnect(); gain.disconnect(); };
+    }
+  }
+
+  _gentlePulse() {
+    // 极轻柔低频脉冲 — 像远处心跳
+    const now = this.ac.currentTime;
+
+    const osc = this.ac.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = 50;
+
+    const lfo = this.ac.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = 1.2; // 72bpm 心跳节奏
+    const lfoGain = this.ac.createGain();
+    lfoGain.gain.value = 4;
+    lfo.connect(lfoGain).connect(osc.frequency);
+
+    const gain = this.ac.createGain();
+    gain.gain.value = 0.02;
+    // 脉动音量
+    const volLfo = this.ac.createOscillator();
+    volLfo.type = 'sine';
+    volLfo.frequency.value = 1.2;
+    const volLfoGain = this.ac.createGain();
+    volLfoGain.gain.value = 0.01;
+    volLfo.connect(volLfoGain);
+    volLfoGain.connect(gain.gain);
+
+    const lp = this.ac.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 100;
+
+    osc.connect(lp).connect(gain).connect(this.masterGain);
+    osc.start(now);
+    lfo.start(now);
+    volLfo.start(now);
+
+    this._addNode(osc, lfo, volLfo, lfoGain, volLfoGain, lp, gain);
+  }
+
+  _softBell() {
+    // 柔和低音铃 — 不刺耳的提醒
     const now = this.ac.currentTime;
     const osc = this.ac.createOscillator();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(200, now);
-    osc.frequency.linearRampToValueAtTime(120, now + 0.8);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(260, now);
+    osc.frequency.linearRampToValueAtTime(180, now + 0.6);
     const gain = this.ac.createGain();
-    gain.gain.setValueAtTime(0.12, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.06, now + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
     osc.connect(gain).connect(this.masterGain);
     osc.start(now);
-    osc.stop(now + 1.6);
+    osc.stop(now + 1.3);
     osc.onended = () => { osc.disconnect(); gain.disconnect(); };
   }
 

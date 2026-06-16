@@ -24,37 +24,39 @@ export const webSearch = {
 
     const maxResults = Math.min(num || 5, 10);
 
-    // 1. Try Tavily Search API first (works in China)
-    const tavilyKey = process.env.TAVILY_API_KEY || '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';
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 15_000);
+    // 1. Try Tavily Search API first (配置 TAVILY_API_KEY 环境变量后启用)
+    const tavilyKey = process.env.TAVILY_API_KEY;
+    if (tavilyKey) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 15_000);
 
-      const resp = await fetch('https://api.tavily.com/search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          api_key: tavilyKey,
-          query,
-          search_depth: 'basic',
-          max_results: maxResults,
-        }),
-        signal: controller.signal,
-      });
+        const resp = await fetch('https://api.tavily.com/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            api_key: tavilyKey,
+            query,
+            search_depth: 'basic',
+            max_results: maxResults,
+          }),
+          signal: controller.signal,
+        });
 
-      clearTimeout(timer);
+        clearTimeout(timer);
 
-      if (resp.ok) {
-        const data = await resp.json();
-        const results = (data.results || []).slice(0, maxResults);
-        if (results.length > 0) {
-          return results.map((r, i) =>
-            `${i + 1}. **${r.title || ''}**\n   ${r.content || r.snippet || ''}\n   ${r.url || ''}`
-          ).join('\n\n');
+        if (resp.ok) {
+          const data = await resp.json();
+          const results = (data.results || []).slice(0, maxResults);
+          if (results.length > 0) {
+            return results.map((r, i) =>
+              `${i + 1}. **${r.title || ''}**\n   ${r.content || r.snippet || ''}\n   ${r.url || ''}`
+            ).join('\n\n');
+          }
         }
+      } catch (err) {
+        log.warn(`Tavily 搜索失败: ${err.message}`);
       }
-    } catch (err) {
-      log.warn(`Tavily 搜索失败: ${err.message}`);
     }
 
     // 2. Fallback: Bing search (works in China, no API key)

@@ -42,7 +42,7 @@ export async function importFromUrl(url) {
     log.log(`导入完成: ${pet.name}`);
     return pet;
   } finally {
-    try { fs.unlinkSync(zipPath); } catch {}
+    try { fs.unlinkSync(zipPath); } catch (e) { log.warn('操作失败', e?.message || e); }
   }
 }
 
@@ -91,7 +91,7 @@ export async function importFromZip(zipPath) {
     return pet;
   } finally {
     // Cleanup temp extraction
-    try { fs.rmSync(extractDir, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(extractDir, { recursive: true, force: true }); } catch (e) { log.warn('操作失败', e?.message || e); }
   }
 }
 
@@ -359,7 +359,7 @@ async function importSlugData(petData) {
     log.log(`API 导入完成: ${pet.name}`);
     return pet;
   } finally {
-    try { fs.unlinkSync(tmpPath); } catch {}
+    try { fs.unlinkSync(tmpPath); } catch (e) { log.warn('操作失败', e?.message || e); }
   }
 }
 

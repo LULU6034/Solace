@@ -5,6 +5,9 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { createModuleLogger } from '../lib/debug-log.js';
+
+const log = createModuleLogger('file-tools');
 
 const MAX_READ_SIZE = 100_000; // 100KB max read (text files)
 const MAX_PDF_SIZE = 5_000_000; // 5MB max read (PDF, processed page-by-page)
@@ -14,7 +17,9 @@ const DANGEROUS_EXTENSIONS = new Set(['.exe', '.dll', '.sys', '.com', '.bat', '.
 // 安全目录白名单：Agent 只能操作这些目录及其子目录
 const SAFE_ROOTS = (() => {
   const home = process.env.HOME || process.env.USERPROFILE || '';
+  const cwd = process.cwd();
   return [
+    cwd,  // 项目根目录
     path.join(home, '.ai-desktop-pet'),
     path.join(home, 'Desktop'),
     path.join(home, 'Documents'),
@@ -42,10 +47,10 @@ async function _ocrImage(buffer, label = '') {
   try {
     const Tesseract = (await import('tesseract.js')).default;
     const { data } = await Tesseract.recognize(buffer, 'chi_sim+eng', {
-      logger: (m) => { if (m.status === 'recognizing text') console.log(`[OCR${label}] ${Math.round(m.progress * 100)}%`); },
+      logger: (m) => { if (m.status === 'recognizing text') log.log(`OCR${label} ${Math.round(m.progress * 100)}%`); },
     });
     const text = (data?.text || '').replace(/\n{2,}/g, '\n').trim();
-    console.log(`[OCR${label}] 完成, ${text.length} 字符`);
+    log.log(`OCR${label} 完成, ${text.length} 字符`);
     return text || null;
   } catch (err) {
     console.error(`[OCR${label}] 失败:`, err.message);
@@ -70,12 +75,12 @@ async function _ocrPdfPages(pdfBuffer, maxPages = 3) {
       const ctx = canvas.getContext('2d');
       await pdfPage.render({ canvasContext: ctx, viewport }).promise;
       const imgBuffer = canvas.toBuffer('image/png');
-      console.log(`[OCR] 第${i}页渲染完成, 开始识别...`);
+      log.log(`OCR 第${i}页渲染完成, 开始识别...`);
       const text = await _ocrImage(imgBuffer, `-p${i}`);
       if (text) texts.push(`[第${i}页]\n${text}`);
     }
     await doc.destroy();
-    console.log(`[OCR] PDF OCR 完成, ${texts.length}/${pages} 页有文字`);
+    log.log(`OCR PDF 完成, ${texts.length}/${pages} 页有文字`);
     return texts.length ? texts.join('\n\n') : null;
   } catch (err) {
     console.error('[OCR] PDF OCR 失败:', err.message);
@@ -111,7 +116,7 @@ export const readFile = {
         try {
               // 用 pdfjs-dist 提取文字（不需要 pdf-parse）
           const buf = fs.readFileSync(resolved);
-          console.log(`[read_file] PDF 大小: ${(buf.length / 1024).toFixed(0)}KB`);
+          log.log(`read_file PDF 大小: ${(buf.length / 1024).toFixed(0)}KB`);
           const uint8 = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
           const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
           const doc = await pdfjsLib.getDocument({ data: uint8 }).promise;
@@ -143,10 +148,10 @@ export const readFile = {
           const tocInfo = tocPages.length ? `目录: 第${tocPages.join(',')}页` : '';
           const summary = `[PDF: ${numPages} 页${tocInfo ? ', ' + tocInfo : ''}，已提取约 ${totalChars} 字符]\n\n`;
           const text = allText.replace(/\s+/g, ' ').trim();
-          console.log(`[read_file] pdfjs: ${numPages} 页, 文字: ${text.length} 字符`);
+          log.log(`read_file pdfjs: ${numPages} 页, 文字: ${text.length} 字符`);
           if (text.length > 50) return summary + text;
           // 无文字层 → 自动 OCR
-          console.log(`[read_file] 启动 OCR (前${Math.min(numPages, 3)}页)...`);
+          log.log(`read_file 启动 OCR (前${Math.min(numPages, 3)}页)...`);
           const ocrText = await _ocrPdfPages(buf, numPages);
           if (ocrText) return `[PDF: ${numPages} 页, OCR 提取]\n\n${ocrText}`;
           return summary + '(无可提取的文字，OCR 也未识别到内容。可能是纯图片扫描件)';
@@ -290,7 +295,7 @@ export const readFilePage = {
       let ocrText = '';
       try {
         ocrText = (await _ocrImage(imgBuffer)) || '';
-      } catch {}
+      } catch (e) { log.warn('操作失败', e?.message || e); }
 
       await doc.destroy();
       const result = [`[PDF 第 ${pageNum}/${totalPages} 页]`];

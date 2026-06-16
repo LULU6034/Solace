@@ -91,7 +91,7 @@ export async function hatchSpritesheet(imgConfig, petDef, outputDir) {
   fs.copyFileSync(spritesheetPath, destPath);
 
   // Clean up temp file
-  try { fs.unlinkSync(spritesheetPath); } catch {}
+  try { fs.unlinkSync(spritesheetPath); } catch (e) { log.warn('操作失败', e?.message || e); }
 
   // Build metadata
   const pet = {

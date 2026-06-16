@@ -520,7 +520,7 @@ function drawGraph() {
   ctx.clearRect(0, 0, W, H)
 
   // 背景微点阵
-  ctx.fillStyle = 'rgba(255,255,255,0.012)'
+  ctx.fillStyle = 'rgba(0,0,0,0.025)'
   const dotGap = 36
   for (let x = (viewX % dotGap + dotGap) % dotGap; x < W; x += dotGap) {
     for (let y = (viewY % dotGap + dotGap) % dotGap; y < H; y += dotGap) {

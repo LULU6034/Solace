@@ -6,6 +6,7 @@
  */
 import { createLLM } from './llm-client.js';
 import { createModuleLogger } from '../lib/debug-log.js';
+import { assembleSystemPrompt, loadPrompt } from '../lib/prompt-loader.js';
 
 const log = createModuleLogger('coordinator');
 
@@ -77,7 +78,7 @@ async function runDiscussionMode({
       // Inject group discussion context as system message
       const groupCtxMsg = {
         role: 'system',
-        content: `[群聊讨论] 你正在参与一个多角色群聊。参与成员: ${allNames}。你是"${agent.name}"。这是讨论模式——请基于你的角色专长发表看法，可以互相补充或质疑。如果用户的问题不够具体，先根据你的角色角度尝试回答，而不是反问。`,
+        content: `${assembleSystemPrompt('group')}\n\n---\n\n[当前群聊]\n参与成员: ${allNames}。你是"${agent.name}"——请基于你的角色专长发表看法，可以互相补充或质疑。如果用户的问题不够具体，先根据你的角色角度尝试回答，而不是反问。`,
       };
       const baseMessages = agent.injectPersonality(messages);
       const roundMessages = context.round === 1
@@ -314,7 +315,7 @@ async function runCollaborationMode({
   // DeepSeek reasoning_effort burns tokens on thinking — disable so JSON plan fits
   const plannerLLM = createLLM({ ...config, temperature: 0.5, maxTokens: 1024, reasoningEffort: 'none' });
   const { content: planText } = await plannerLLM.invoke([
-    { role: 'system', content: MANAGER_PROMPT },
+    { role: 'system', content: `${loadPrompt('app-guide')}\n\n${loadPrompt('tools-guide')}\n\n---\n\n${MANAGER_PROMPT}` },
     { role: 'user', content: `用户需求: ${userText}\n${contextInfo ? `背景信息:\n${contextInfo}` : ''}` },
   ]);
 

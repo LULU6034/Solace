@@ -67,7 +67,7 @@ export class RAGPipeline {
   async ready() { while (!this._ready) await new Promise(r => setTimeout(r, 10)); return this; }
 
   _save() {
-    try { fs.writeFileSync(this.dbPath, Buffer.from(this.db.export())); } catch {}
+    try { fs.writeFileSync(this.dbPath, Buffer.from(this.db.export())); } catch (e) { log.warn('操作失败', e?.message || e); }
   }
 
   _extractText(filePath) {

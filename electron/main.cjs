@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog } = require('electron');
+﻿const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -34,8 +34,19 @@ function createChatWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: false, // Web Speech API 需要网络访问 Google 语音服务
       backgroundThrottling: false,
+      autoplayPolicy: 'no-user-gesture-required',
     },
+  });
+
+  // ── 麦克风权限授权（Web Speech API 需要）──
+  chatWindow.webContents.session.setPermissionRequestHandler((_webContents, permission, callback) => {
+    if (permission === 'media' || permission === 'microphone' || permission === 'audioCapture') {
+      callback(true);
+    } else {
+      callback(false);
+    }
   });
 
   if (isDev) {
@@ -100,7 +111,24 @@ ipcMain.handle('move-window', (event, { dx, dy }) => {
   }
 });
 
+// 路径安全：只允许访问用户目录下的常见位置
+function isSafeFilePath(filePath) {
+  const home = require('os').homedir();
+  const safeRoots = [
+    home,
+    path.join(home, 'Desktop'),
+    path.join(home, 'Documents'),
+    path.join(home, 'Downloads'),
+    path.join(home, 'AppData', 'Local', 'Temp'),
+    path.join(home, '.ai-desktop-pet'),
+    path.resolve(__dirname, '..'),
+  ];
+  const resolved = path.resolve(filePath);
+  return safeRoots.some(root => resolved.startsWith(root + path.sep) || resolved === root);
+}
+
 ipcMain.handle('feed-file', (_event, filePath) => {
+  if (!isSafeFilePath(filePath)) return;
   const name = path.basename(filePath);
   if (!chatWindow || chatWindow.isDestroyed()) {
     pendingFile = { path: filePath, name };
@@ -111,16 +139,15 @@ ipcMain.handle('feed-file', (_event, filePath) => {
 });
 
 ipcMain.handle('read-file-content', async (_event, filePath) => {
+  if (!isSafeFilePath(filePath)) return { success: false, content: '', error: '无权访问此路径' };
   try {
     const ext = path.extname(filePath).toLowerCase();
-    // 二进制格式：读为 base64，给 Agent 用 vision/PDF 工具查看
     const binaryExts = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico']);
     if (binaryExts.has(ext)) {
       const buf = await fs.promises.readFile(filePath);
       const base64 = buf.toString('base64');
       return { success: true, content: '', binary: true, ext, base64, size: buf.length };
     }
-    // 文本格式：UTF-8
     const content = await fs.promises.readFile(filePath, 'utf-8');
     return { success: true, content };
   } catch {
@@ -178,10 +205,15 @@ ipcMain.handle('load-config', () => {
   return result;
 });
 ipcMain.handle('save-config', (_event, config) => {
-  saveConfigFile(config);
-  // 如果配置了语音 Key，通知 voice-ipc 启动 TTS 服务
-  if (config.dashscopeApiKey) {
-    try { setApiKeyAndRetry(config.dashscopeApiKey); } catch {}
+  // 白名单过滤：只保存已知的安全字段，防止前端注入恶意配置
+  const ALLOWED_KEYS = ['provider', 'apiKey', 'visionApiKey', 'dashscopeApiKey', 'minimaxApiKey', 'model', 'baseUrl', 'deepseekApiKey'];
+  const sanitized = {};
+  for (const key of ALLOWED_KEYS) {
+    if (config[key] !== undefined) sanitized[key] = config[key];
+  }
+  saveConfigFile(sanitized);
+  if (sanitized.dashscopeApiKey) {
+    try { setApiKeyAndRetry(sanitized.dashscopeApiKey); } catch {}
   }
 });
 
@@ -199,6 +231,47 @@ ipcMain.handle('pick-avatar', async () => {
   return `data:image/${mime};base64,${buf.toString('base64')}`
 })
 
+// 工作状态通知（任务栏/托盘图标动画等，目前 no-op）
+ipcMain.handle('notify-working', () => {})
+
+// ── 语音转文字 (本地 Whisper 模型, 主进程运行) ──
+let _sttPipeline = null, _openccConverter = null
+async function getSTTPipeline() {
+  if (_sttPipeline) return _sttPipeline
+  const { pipeline, env } = require('@xenova/transformers')
+  env.cacheDir = path.join(__dirname, '..', 'public', 'models')
+  env.allowRemoteModels = false
+  env.allowLocalModels = true
+  _sttPipeline = await pipeline('automatic-speech-recognition', 'Xenova/whisper-small', { quantized: true, device: 'cpu' })
+  return _sttPipeline
+}
+async function toSimplified(text) {
+  if (!_openccConverter) {
+    const OpenCC = require('opencc-js')
+    _openccConverter = OpenCC.Converter({ from: 'tw', to: 'cn' })
+  }
+  return _openccConverter(text)
+}
+
+ipcMain.handle('voice-stt', async (_event, params) => {
+  const audioB64 = (params?.audio) || params || ''
+  if (!audioB64) return { text: '' }
+  try {
+    const pipe = await getSTTPipeline()
+    const audioBuf = Buffer.from(audioB64, 'base64')
+    const int16 = new Int16Array(audioBuf.buffer, audioBuf.byteOffset + 44, (audioBuf.length - 44) / 2)
+    const float32 = new Float32Array(int16.length)
+    for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768
+    const result = await pipe(float32, { language: 'zh', task: 'transcribe', chunk_length_s: 30 })
+    let text = result?.text || ''
+    if (text) text = await toSimplified(text)
+    return { text }
+  } catch (e) {
+    console.error('[voice-stt]', e.message)
+    return { error: e.message, text: '' }
+  }
+})
+
 app.whenReady().then(() => {
   // 加载配置，初始化语音 TTS 服务
   const cfg = loadConfigFile();
@@ -208,12 +281,34 @@ app.whenReady().then(() => {
   if (bridge) bridge.setApiKey(cfg?.deepseekApiKey || cfg?.apiKey || '');
   createChatWindow();
   createTray();
+
+  // ── Ctrl+Space 语音输入 (before-input-event 支持 keydown/keyup) ──
+  chatWindow.webContents.on('before-input-event', (_event, input) => {
+    if (input.control && (input.key === ' ' || input.code === 'Space')) {
+      chatWindow.webContents.send('voice-event', input.type); // 'keyDown' | 'keyUp'
+    }
+  });
 });
 
 app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
+  // 停止音乐播放
+  if (chatWindow && !chatWindow.isDestroyed()) {
+    chatWindow.webContents.executeJavaScript('try { window.__musicAudio?.pause(); window.__musicAudio = null; } catch(e) {}');
+  }
   stopAgent();
-  // 强杀 Python TTS 服务
-  try { require('child_process').execSync('taskkill /f /im python.exe 2>nul', { timeout: 1000 }); } catch {}
+  // 精准结束 Python TTS 进程（不误杀用户其他 Python 进程）
+  try {
+    const { getPythonProcess } = require('./ipc/voice-ipc.cjs');
+    const proc = getPythonProcess();
+    if (proc && !proc.killed) {
+      proc.kill('SIGTERM');
+      setTimeout(() => { if (!proc.killed) proc.kill('SIGKILL'); }, 3000);
+    }
+  } catch {}
 });
 
-app.on('window-all-closed', () => {});
+app.on('window-all-closed', () => {
+  // 窗口关闭时停止音乐（用户可能点了 X 但 app 还在托盘运行）
+  stopAgent();
+});

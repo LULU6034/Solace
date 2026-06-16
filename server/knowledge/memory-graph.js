@@ -293,7 +293,7 @@ export class KnowledgeGraph {
       // Try direct JSON parse
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (jsonMatch) return JSON.parse(jsonMatch[0]);
-    } catch {}
+    } catch (e) { log.warn('JSON解析失败', e?.message || e); }
     return { entities: [], relations: [] };
   }
 

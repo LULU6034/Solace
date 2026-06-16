@@ -31,6 +31,7 @@ class ServerBridge {
     this._connectResolve = null; // Resolve _connect() promise on ready
     this._startPromise = null;   // Prevent concurrent starts
     this._deepseekApiKey = '';   // Stagehand browse 工具用
+    this._stopping = false;      // 正在停止，禁止自动重启
   }
 
   setApiKey(key) { this._deepseekApiKey = key; }
@@ -107,8 +108,8 @@ class ServerBridge {
       this.process = null;
       this.ws = null;
 
-      // Auto-restart in dev mode
-      if (code !== 0 && this.restartCount < MAX_RESTARTS) {
+      // Auto-restart in dev mode (skip if intentionally stopping)
+      if (!this._stopping && code !== 0 && this.restartCount < MAX_RESTARTS) {
         this.restartCount++;
         console.log(`[server-ipc] 自动重启 (${this.restartCount}/${MAX_RESTARTS})...`);
         setTimeout(() => this.start(), 2000);
@@ -278,6 +279,7 @@ class ServerBridge {
   }
 
   stop() {
+    this._stopping = true;  // 禁止自动重启
     if (this._reconnectTimer) {
       clearTimeout(this._reconnectTimer);
       this._reconnectTimer = null;

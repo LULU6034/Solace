@@ -70,7 +70,7 @@ function _parseVisionOutput(text) {
   } catch {
     const m = cleaned.match(/\{[\s\S]*"summary"[\s\S]*\}/);
     if (m) {
-      try { return JSON.parse(m[0]); } catch {}
+      try { return JSON.parse(m[0]); } catch (e) { log.warn('JSON解析失败', e?.message || e); }
     }
   }
   return {

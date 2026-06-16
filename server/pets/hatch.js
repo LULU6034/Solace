@@ -6,6 +6,9 @@
  */
 
 import { createLLM } from './llm-client.js';
+import { createModuleLogger } from '../lib/debug-log.js';
+
+const log = createModuleLogger('hatch');
 
 const HATCH_PROMPT = `你是一个像素艺术家。用户会描述一个角色，你需要生成一个 20×16 的像素精灵。
 
@@ -65,7 +68,7 @@ export async function hatchPet(config, description) {
   } catch {
     const m = raw.match(/\{[\s\S]*\}/);
     if (m) {
-      try { return JSON.parse(m[0]); } catch {}
+      try { return JSON.parse(m[0]); } catch (e) { log.warn('操作失败', e?.message || e); }
     }
   }
   return null;

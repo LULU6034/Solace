@@ -31,8 +31,7 @@
         <span>中期摘要 (7 天)</span>
         <span class="privacy-badge auto">自动</span>
       </div>
-      <div class="privacy-row">
-        <span>情景记忆</span>
+      <div class="privacy-actions">
         <button class="privacy-btn small" @click="$emit('open-memory')">管理</button>
       </div>
       <div class="privacy-row">
@@ -50,26 +49,29 @@
           {{ item.label }}
         </label>
       </div>
-      <button class="privacy-btn" @click="deleteProfile">删除所有画像数据</button>
+      <div class="privacy-actions">
+        <button class="privacy-btn danger" @click="deleteProfile">删除所有画像数据</button>
+      </div>
     </section>
 
     <!-- Emotion -->
     <section class="privacy-section">
       <h4>📊 情绪追踪</h4>
-      <div class="privacy-row">
-        <span>情绪日志</span>
-        <button class="privacy-btn small" @click="deleteEmotionLog">清除</button>
-      </div>
       <div class="privacy-hint">
         情绪数据仅用于趋势分析和主动关怀，不会离开本地。
+      </div>
+      <div class="privacy-actions">
+        <button class="privacy-btn small" @click="deleteEmotionLog">清除情绪日志</button>
       </div>
     </section>
 
     <!-- Data export -->
     <section class="privacy-section">
       <h4>📦 数据导出</h4>
-      <button class="privacy-btn" @click="exportAll">导出全部数据 (JSON)</button>
-      <button class="privacy-btn danger" @click="deleteAll">删除全部数据</button>
+      <div class="privacy-actions">
+        <button class="privacy-btn" @click="exportAll">导出全部数据 (JSON)</button>
+        <button class="privacy-btn danger" @click="deleteAll">删除全部数据</button>
+      </div>
     </section>
   </div>
 </template>
@@ -186,89 +188,81 @@ input:focus, select:focus, textarea:focus, .setting-input:focus {
 
 
 .privacy-panel {
-  padding: 16px;
   font-size: 13px;
-  overflow-y: auto;
-  height: 100%;
+  display: flex; flex-direction: column; gap: 20px;
 }
 
-.privacy-panel h3 { font-size: 16px; margin-bottom: 8px; }
-.privacy-panel h4 { font-size: 14px; margin: 16px 0 8px; color: var(--text-secondary, #5A6170); }
+.privacy-panel h3 { font-size: 18px; font-weight: 700; color: var(--text-primary); margin: 0; letter-spacing: -.2px; }
+.privacy-panel h4 { font-size: 13px; font-weight: 600; color: var(--text-primary); margin: 0; }
 
 .privacy-desc {
-  color: var(--text-muted, #88909E);
-  font-size: 12px;
-  margin-bottom: 8px;
+  color: var(--text-muted);
+  font-size: 12.5px; line-height: 1.6;
 }
 
+/* 分区卡片 */
 .privacy-section {
-  border-top: 1px solid var(--border, #E8ECF0);
-  padding: 10px 0;
+  padding: 16px; border-radius: 12px;
+  border: 1px solid var(--border); background: var(--bg-card);
+  display: flex; flex-direction: column; gap: 10px;
 }
 
 .privacy-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 2px 0; font-size: 13px; color: var(--text-primary);
 }
+
+.privacy-row select {
+  padding: 6px 32px 6px 12px; border-radius: 8px;
+  border: 1.5px solid var(--border); font-size: 12.5px; font-family: inherit;
+  background: var(--bg-input); color: var(--text-primary); cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center;
+  transition: border-color 0.2s;
+}
+.privacy-row select:hover { border-color: var(--border-strong); }
+.privacy-row select:focus { border-color: var(--accent); outline: none; }
 
 .privacy-check {
-  padding: 4px 0;
+  display: flex; flex-direction: column; gap: 6px;
 }
-
 .privacy-check label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  font-size: 13px; color: var(--text-primary);
+  padding: 2px 0;
+}
+.privacy-check input[type="checkbox"] {
+  width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer;
 }
 
 .privacy-badge {
-  padding: 1px 8px;
-  border-radius: 10px;
-  font-size: 11px;
-  background: var(--border-light, #E8ECF0);
-  color: var(--text-muted, #88909E);
+  padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 500;
+  background: var(--accent-soft); color: var(--accent);
 }
-
-.privacy-badge.auto { color: var(--brand, #059669); }
 
 .privacy-hint {
-  font-size: 11px;
-  color: var(--text-muted, #88909E);
-  margin-top: 4px;
+  font-size: 11.5px; color: var(--text-muted); line-height: 1.5;
 }
 
+/* 按钮组 */
+.privacy-actions {
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
 .privacy-btn {
-  padding: 6px 14px;
-  border: 1px solid var(--border, #E8ECF0);
-  border-radius: 6px;
-  background: var(--card, #FFFFFF);
-  color: var(--text-primary, #1A1A2E);
-  cursor: pointer;
-  font-size: 12px;
-  margin-right: 6px;
-  transition: background .15s;
+  padding: 8px 18px; border-radius: 10px;
+  border: 1.5px solid var(--border); background: var(--bg-card);
+  color: var(--text-secondary); cursor: pointer;
+  font-size: 13px; font-family: inherit; font-weight: 500;
+  transition: all 0.2s cubic-bezier(.16,1,.3,1);
 }
-
-.privacy-btn:hover { background: var(--border-light, #E8ECF0); }
-.privacy-btn.small { padding: 2px 8px; font-size: 11px; }
-.privacy-btn.danger { color: var(--danger, #FF3B30); border-color: var(--danger, #FF3B30); }
-
-.privacy-select {
-  padding: 4px 8px;
-  border: 1px solid var(--border, #E8ECF0);
-  border-radius: 6px;
-  font-size: 12px;
+.privacy-btn:hover {
+  border-color: var(--border-strong); background: var(--bg-sidebar-hover);
+  color: var(--text-primary);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
 }
-
-.privacy-select select {
-  padding: 4px 8px;
-  border: 1px solid var(--border, #E8ECF0);
-  border-radius: 6px;
-  font-size: 12px;
-  background: var(--card, #FFFFFF);
-  color: var(--text-primary, #1A1A2E);
-}
+.privacy-btn:active { transform: scale(0.97); }
+.privacy-btn.small { padding: 4px 12px; font-size: 11.5px; border-radius: 8px; }
+.privacy-btn.danger { color: var(--danger); border-color: rgba(239,68,68,0.3); }
+.privacy-btn.danger:hover { background: rgba(239,68,68,0.06); border-color: var(--danger); }
 </style>

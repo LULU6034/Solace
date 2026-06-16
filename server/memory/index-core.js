@@ -4,6 +4,7 @@
 import { ShortTermMemory } from './short-term.js';
 import { FactStoreEnhanced } from './fact-store-enhanced.js';
 import { MemoryRetrieval } from './retrieval.js';
+import { MemoryConsolidator } from './consolidator.js';
 import * as episodic from './episodic.js';
 import * as mediumTerm from './medium-term.js';
 import { createModuleLogger } from '../lib/debug-log.js';
@@ -18,6 +19,7 @@ export class MemoryManager {
       shortTerm: this.shortTerm,
       factStore: null,
     });
+    this.consolidator = null; // 记忆巩固器，_init 中异步创建
     this.sessionId = opts.sessionId || `mem_${Date.now()}`;
     this._initPromise = this._init(opts);
   }
@@ -28,6 +30,11 @@ export class MemoryManager {
       await this.factStore.init();
       this.retrieval.factStore = this.factStore;
     }
+    // 创建记忆巩固器（在 factStore 就绪后）
+    this.consolidator = new MemoryConsolidator(this.factStore, null, {
+      mergeThreshold: opts.mergeThreshold ?? 0.85,
+      runInterval: opts.runInterval ?? 5,
+    });
   }
 
   async ready() {
@@ -37,6 +44,13 @@ export class MemoryManager {
 
   addTurn(role, content, metadata = {}) {
     this.shortTerm.add(role, content, metadata);
+  }
+
+  /** 每轮对话后调用，触发后台记忆巩固（间隔由 consolidator.runInterval 控制） */
+  async afterTurn() {
+    if (this.consolidator) {
+      await this.consolidator.afterTurn();
+    }
   }
 
   async getContext(query) {
@@ -83,7 +97,8 @@ export class MemoryManager {
     }
 
     // Update daily summary
-    mediumTerm.upsertSummary(dk, `对话 ${(turns || []).length} 轮`, {
+    mediumTerm.mergeSummary(dk, {
+      summary: `对话 ${(turns || []).length} 轮`,
       topics: [],
       turnCount: (turns || []).length,
       sessionIds: [this.sessionId],

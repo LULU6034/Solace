@@ -319,7 +319,7 @@ export class AgentManager {
     this._switchQueue = this._switchQueue.then(() => {
       this._activeAgentId = agentId;
       log.log(`切换 Agent: ${this._agents.get(agentId)?.name}`);
-    }).catch(() => {});
+    }).catch((e) => { log.warn('操作失败', e?.message || e); });
 
     await this._switchQueue;
     return this.getActiveAgent();
@@ -467,7 +467,7 @@ export class AgentManager {
       if (fs.existsSync(filePath)) {
         return fs.readFileSync(filePath, 'utf-8').replace('{{name}}', name);
       }
-    } catch {}
+    } catch (e) { log.warn('操作失败', e?.message || e); }
     // Built-in fallback
     if (character === 'glassesDog') {
       return `我是${name}，案中的一个智能助手。知识渊博、响应迅速，能帮你解决日常咨询、技术难题、文件分析、网络搜索等各种问题。`;
@@ -481,7 +481,7 @@ export class AgentManager {
       if (fs.existsSync(filePath)) {
         return fs.readFileSync(filePath, 'utf-8');
       }
-    } catch {}
+    } catch (e) { log.warn('操作失败', e?.message || e); }
 
     if (character === 'glassesDog') {
       return `## 行为风格\n- 用干练专业的语气说话\n- 先给结论，再展开解释\n- 不确定的事情诚实说"让我查一下"\n- 主动记住用户的偏好和习惯\n- 中文为主，代码用英文`;

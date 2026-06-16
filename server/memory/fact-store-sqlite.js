@@ -50,7 +50,7 @@ export class FactStore {
         legacyCount = legacyDb.exec('SELECT COUNT(*) as n FROM facts WHERE deleted_at IS NULL')[0]?.values?.[0]?.[0] || 0;
       } catch { /* 旧表可能没有 deleted_at 列 */ }
       if (legacyCount === 0) {
-        try { legacyCount = legacyDb.exec('SELECT COUNT(*) as n FROM facts')[0]?.values?.[0]?.[0] || 0; } catch {}
+        try { legacyCount = legacyDb.exec('SELECT COUNT(*) as n FROM facts')[0]?.values?.[0]?.[0] || 0; } catch (e) { log.warn('操作失败', e?.message || e); }
       }
 
       // 检查新版数据库是否为空
@@ -90,7 +90,7 @@ export class FactStore {
         this.db.run('DROP TABLE IF EXISTS facts');
         this._migrate();
       }
-    } catch {}
+    } catch (e) { log.warn('操作失败', e?.message || e); }
     this._cleanRecycleBin();
     this._ready = true;
   }
@@ -116,10 +116,10 @@ export class FactStore {
       if (cols[0]?.values) {
         for (const row of cols[0].values) existingCols.add(row[1]); // column name is index 1
       }
-    } catch {}
+    } catch (e) { log.warn('操作失败', e?.message || e); }
     const addCol = (name, type) => {
       if (!existingCols.has(name)) {
-        try { this.db.run(`ALTER TABLE facts ADD COLUMN ${name} ${type} DEFAULT NULL`); } catch {}
+        try { this.db.run(`ALTER TABLE facts ADD COLUMN ${name} ${type} DEFAULT NULL`); } catch (e) { log.warn('操作失败', e?.message || e); }
       }
     };
     addCol('user_id', 'TEXT');

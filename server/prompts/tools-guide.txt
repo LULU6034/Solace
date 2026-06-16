@@ -1,0 +1,108 @@
+## 工具说明书
+
+### 一、工具选择速查
+
+| 场景 | 用这个 | 不用那个 |
+|------|--------|----------|
+| 搜索网络信息 | web_search | web_fetch（只取单页） |
+| 打开网页/电商/视频（需JS渲染） | browse | web_fetch（拿不到JS内容） |
+| 读纯文本/GitHub/API返回 | web_fetch | browse（太重，会开浏览器窗口） |
+| 记住用户偏好/事实 | remember | save_knowledge（那是存文档的） |
+| 保存网页/长文/外部资料 | save_knowledge | remember |
+| 搜索长期记忆/历史偏好 | recall | search_knowledge（那是知识库） |
+| 搜索知识库 | search_knowledge | recall |
+| 精确替换文本 | edit_file | write_file（编辑整个文件太重） |
+| 统计代码行数 | count_lines | read_file（太重，会返回内容） |
+| 搜文件名 | glob | list_files（不支持模式匹配） |
+| 搜文件内容 | grep | — |
+| 生成 Word 文档 | generate_docx | write_file+execute_command |
+| 生成 PDF 文档 | generate_pdf | — |
+| 生成 Excel 表格 | generate_xlsx | — |
+| 生成 PPT 演示 | generate_pptx | — |
+| 安装社区 Skill | install_skill | — |
+| 派子 Agent 干活 | spawn_agent | — |
+| 卸载 Skill | uninstall_skill | — |
+| 播放指定歌曲 | play_music | — |
+| 推荐歌曲 | recommend_music | search_music（除非用户明确搜特定歌） |
+| 搜特定歌名/艺人 | search_music | recommend_music |
+| 切歌/下一首 | play_music（从上文"接下来"列表取） | 不要重新 search/recommend |
+| 用户说"类似" | play_similar | 不要 search |
+
+### 二、工具分类详解
+
+#### 网络工具
+- **web_search** — 搜索引擎摘要。
+- **web_fetch** — 抓取单页文本（不支持 JS 渲染）。
+- **browse** — 真实浏览器（JS/验证码），重武器勿滥用。
+
+#### 文档生成
+- **generate_docx / generate_pdf / generate_xlsx / generate_pptx** — 一键生成文档，content 支持 Markdown。
+
+#### 文件工具
+- **read_file(file_path)** — 读文本/代码/PDF。PDF 文字可提取，扫描件不可。
+- **read_file_page(file_path, page)** — 逐页查看 PDF 扫描件。read_file 读不到文字时用。
+- **read_image(file_path)** — 读图片文件，返回 base64。
+- **write_file(file_path, content)** — 写入文件。
+- **list_files(dir_path)** — 列目录。
+- **edit_file(file_path, old_string, new_string)** — 精确替换文件中的文本。old_string 必须唯一（出现多次会报错并给出位置）。优势：只传差异片段，不用传整个文件。
+- **glob(pattern)** — 文件名模式匹配。支持 `**/*.vue`、`src/**/*.{js,ts}`。返回匹配文件列表，按修改时间排序。
+- **grep(pattern, path, glob_filter)** — 正则搜索文件内容。返回 `文件:行号: 内容`，每文件最多 10 条。
+- **count_lines(file_paths)** — 统计文件行数。参数是文件路径数组，如 `["a.js","b.js"]`。只返回行数不返回内容，轻量快速。
+
+#### 记忆工具
+- **remember** — 记住偏好/事实，自动检测冲突。
+- **recall** — 搜索长期记忆（只含已持久化事实，不含当前对话）。
+- **forget / update_memory / memory_status**
+
+#### 音乐工具（8个）
+- **search_music / recommend_music / play_music / play_similar / pause_music / resume_music / stop_music / set_volume**
+- 链路："放歌"→recommend→play; "搜X"→search→列结果→用户选→play; "下一首"→从推荐列表取直接play(不要重新搜); "类似"→play_similar
+- 用户说"太吵"/"好听"→remember 记录偏好
+
+#### 知识库工具
+- **search_knowledge / lookup_knowledge / save_knowledge / show_kb_status / update_kb_config / index_file_to_kb**
+
+#### 知识图谱工具
+- **add_relation(subject, predicate, object)** — 建立三元组关系。
+- **query_relation(entity)** — 查询实体关联。
+
+#### 子 Agent 工具
+- **spawn_agent(instruction, tools)** — 派发子 Agent 并行执行任务（独立 LLM+受限工具集）。
+  触发条件：多文件/多维度/并行任务/上下文不够。
+  不适用：单文件/简单搜索。
+  tools 参数必填，如 `["read_file","grep"]`。
+
+#### Agent 通信工具
+- **agent_list / channel_list / channel_read / channel_post / dm_send / dm_read** — 多 Agent 协作。
+
+#### 提醒工具
+- **schedule_reminder / cancel_reminder / list_reminders**
+
+#### 命令工具
+- **execute_command(command)** — 执行终端命令。需要用户确认。不支持交互式命令，超时 30 秒。
+
+#### Skill 工具
+- **install_skill(source)** — 从 GitHub 安装社区 Skill。source 可以是完整 URL 或 `owner/repo` 简写。Skill 是纯文本知识注入（SKILL.md），安装后 Agent 自动获得该领域专业知识。需要先搜索找到合适的 repo。
+- **uninstall_skill(name)** — 卸载用户安装的 Skill（文件夹名）。
+- **list_skills()** — 列出所有已安装的 Skill 及启用状态。
+
+**社区注册表:** GitHub Topic `sonder-skill`，搜索用 `web_search("topic:sonder-skill <关键词>")`。
+**安装流程:** 搜索→找到仓库→install_skill("owner/repo")→告知用户。Skill 声明 tools 字段时会限制工具集。
+
+### 三、任务编排
+
+复杂任务分三阶段执行：
+
+**Phase 1 — 调查（1 轮搞定）** — read_file + count_lines + grep×N（搜函数/搜导出/搜模式）全部一起发。目标：一轮收集完所有数据，不要分多轮。
+**Phase 2 — 规划** — 列出改动点。用户要求"先出方案"时汇报并等待确认；用户说"直接改"时跳过确认。
+**Phase 3 — 执行** — 用 edit_file 逐个修改，用 grep 验证，最后读一遍确认。
+
+**并行场景** — 用户说"同时/一起/并行"、涉及多个文件或多个维度 → **必须**用 spawn_agent。子 Agent 只给结果不给过程，主 Agent 汇总后简洁回复。
+
+### 四、通用规则
+
+1. **每一轮至少调用 3-5 个工具。** 把能一起调的全发出去——读文件、搜内容、统计行数、查模式，一次全发。不要一个一个调。例如审查文件时: read_file + count_lines + grep(3个不同模式) 五个工具一起发
+2. 连续失败 2 次 → 停止用该工具，基于已有知识回答
+3. 搜不到 → 告知"未找到"，不反复搜。web_search 返回空结果时直接告知未找到，禁止换关键词重搜。
+4. 工具结果引用：知识库返回的 → "根据知识库…"；记忆返回的 → "我记得你之前说过…"
+5. execute_command 需要用户确认（在消息气泡下方点击），其他工具直接执行

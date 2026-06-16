@@ -87,8 +87,8 @@
           <img v-if="userAvatar.startsWith('data:')" :src="userAvatar" class="avatar-img"/>
           <div v-else class="avatar-geo" :style="{ background: avatarColor }">
             <svg viewBox="0 0 40 40" class="avatar-geo-svg">
-              <path d="M12 28 Q20 8 28 28" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" stroke-linecap="round"/>
-              <path d="M8 22 Q20 16 32 22" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="1.5" stroke-linecap="round"/>
+              <path d="M12 28 Q20 8 28 28" fill="none" stroke="rgba(0,0,0,0.12)" stroke-width="1.5" stroke-linecap="round"/>
+              <path d="M8 22 Q20 16 32 22" fill="none" stroke="rgba(0,0,0,0.1)" stroke-width="1.5" stroke-linecap="round"/>
               <circle cx="20" cy="18" r="3" fill="rgba(255,255,255,0.3)"/>
             </svg>
           </div>

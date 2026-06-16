@@ -17,6 +17,8 @@ const fs = require('fs');
 // ── Python 进程管理（轻量，仅 Flask + dashscope SDK）──
 let pythonProcess = null;
 let pythonPort = 5001;
+// 供 main.cjs 在退出时精准终止
+function getPythonProcess() { return pythonProcess; }
 let _configKey = '';
 
 // ── IPC Handlers ──
@@ -141,8 +143,7 @@ function getApiKeyFromConfig() {
 
   function registerVoiceIPC(configApiKey) {
     if (configApiKey) _configKey = configApiKey;
-    // 启动 Python TTS 服务（MiniMax 存在时作为降级方案）
-    startPythonServer();
+    // TTS 服务懒启动——首次 TTS 请求时才启动，避免阻塞 app 启动
 
     // ── TTS 合成 ──
     ipcMain.handle('voice-tts-synthesize', async (event, { text, emotion, voiceId, speed }) => {
@@ -205,6 +206,7 @@ function getApiKeyFromConfig() {
       }
 
       // ═══ CosyVoice 降级路径 ──
+      await startPythonServer();  // 懒启动
       try {
         const res = await fetch(`http://127.0.0.1:${pythonPort}/tts/generate`, {
           method: 'POST',
@@ -370,4 +372,5 @@ module.exports = {
   registerVoiceIPC,
   setupVoiceEventForwarding,
   setApiKeyAndRetry,
+  getPythonProcess,
 };

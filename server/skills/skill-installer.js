@@ -99,6 +99,6 @@ function _findSkillMd(dir) {
         if (found) return found;
       }
     }
-  } catch {}
+  } catch (e) { log.warn('操作失败', e?.message || e); }
   return null;
 }

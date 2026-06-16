@@ -175,7 +175,7 @@ export const updateKBConfig = {
         const { getActiveWatcher } = await import('./watcher.js');
         const watcher = getActiveWatcher();
         if (watcher) {
-          try { await watcher.stop(); await watcher.start(); } catch {}
+          try { await watcher.stop(); await watcher.start(); } catch (e) { log.warn('操作失败', e?.message || e); }
         }
       }
       const valStr = Array.isArray(value) ? value.join(', ') : String(value);
@@ -378,7 +378,7 @@ export const showKBStatus = {
         const cfg = new KBConfig();
         cfg.load();
         watchPaths = cfg.get('watch.paths') || [];
-      } catch {}
+      } catch (e) { log.warn('操作失败', e?.message || e); }
 
       const lines = [];
       lines.push(`📊 知识库状态`);

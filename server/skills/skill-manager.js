@@ -38,6 +38,15 @@ export function parseSkillMetadata(content, fallbackName = '') {
     meta.trigger = String(parsed.trigger || '').trim();
     meta.modelInstruction = String(parsed.modelInstruction || '').trim();
 
+    // ── 跨平台兼容：Claude Code / Cursor / Codex 字段映射 ──
+    // Claude Code: allowed-tools → Sonder: tools
+    const rawTools = parsed.tools || parsed['allowed-tools'] || parsed.allowedTools || [];
+    meta.tools = Array.isArray(rawTools) ? rawTools : [];
+
+    // Claude Code: version 字段忽略（Sonder 不追踪版本）
+    // Claude Code: model 字段忽略（Sonder 不强绑模型）
+    // Claude Code: metadata 字段忽略（内部使用）
+
     // Optional fields
     if (parsed.disableModelInvocation !== undefined) {
       meta.disableModelInvocation = !!parsed.disableModelInvocation;
@@ -92,37 +101,44 @@ export class SkillManager {
   _scanDir(dir, isBuiltin = false) {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
 
+    // 跨平台文件命名兼容：SKILL.md > AGENTS.md > .cursorrules
+    const SKILL_FILES = ['SKILL.md', 'AGENTS.md', '.cursorrules'];
+
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
 
       const skillDir = path.join(dir, entry.name);
-      const skillFile = path.join(skillDir, 'SKILL.md');
+      // 找第一个存在的文件
+      let skillFile = null;
+      for (const fname of SKILL_FILES) {
+        const fp = path.join(skillDir, fname);
+        if (fs.existsSync(fp)) { skillFile = fp; break; }
+      }
+      if (!skillFile) continue;
 
-      if (fs.existsSync(skillFile)) {
-        try {
-          const content = fs.readFileSync(skillFile, 'utf-8');
-          const meta = parseSkillMetadata(content, entry.name);
-          const body = getSkillBody(content);
+      try {
+        const content = fs.readFileSync(skillFile, 'utf-8');
+        const meta = parseSkillMetadata(content, entry.name);
+        const body = getSkillBody(content);
 
-          const skill = {
-            name: meta.name,
-            filePath: skillFile,
-            meta,
-            body,
-            enabled: meta.defaultEnabled !== false, // Default: enabled
-            builtin: isBuiltin,
-            pluginSkill: false,
-            dir: skillDir,
-          };
+        const skill = {
+          name: meta.name,
+          filePath: skillFile,
+          meta,
+          body,
+          enabled: meta.defaultEnabled !== false,
+          builtin: isBuiltin,
+          pluginSkill: false,
+          dir: skillDir,
+        };
 
-          // Dedup: built-in takes priority
-          const existing = this._skills.get(skill.name);
-          if (!existing || (isBuiltin && !existing.builtin)) {
-            this._skills.set(skill.name, skill);
-          }
-        } catch (err) {
-          log.warn(`加载 skill 失败: ${skillFile} — ${err.message}`);
+        // Dedup: built-in takes priority
+        const existing = this._skills.get(skill.name);
+        if (!existing || (isBuiltin && !existing.builtin)) {
+          this._skills.set(skill.name, skill);
         }
+      } catch (err) {
+        log.warn(`加载 skill 失败: ${skillFile} — ${err.message}`);
       }
     }
   }

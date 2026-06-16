@@ -56,14 +56,14 @@
         @mouseenter="msg._hover = true" @mouseleave="msg._hover = false">
         <div v-if="msg.role === 'assistant'" class="msg-avatar"
           :style="msg._expert?.avatarUrl ? { backgroundImage: 'url('+msg._expert.avatarUrl+')', backgroundSize:'cover' } : { background: (msg._expert?.color||char.color)+'18' }">
-          <span v-if="!msg._expert?.avatarUrl">{{ msg._expert?.icon || char.icon }}</span>
+          <span v-if="!msg._expert?.avatarUrl" v-html="msg._expert?.icon || char.icon"></span>
         </div>
         <div v-else class="msg-avatar user-avatar">
           <img v-if="userAvatar.startsWith('data:')" :src="userAvatar" class="avatar-img" />
           <div v-else class="avatar-geo" :style="{ background: avatarColor }">
             <svg viewBox="0 0 40 40" class="avatar-geo-svg">
-              <path d="M12 28 Q20 8 28 28" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" stroke-linecap="round"/>
-              <path d="M8 22 Q20 16 32 22" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="1.5" stroke-linecap="round"/>
+              <path d="M12 28 Q20 8 28 28" fill="none" stroke="rgba(0,0,0,0.12)" stroke-width="1.5" stroke-linecap="round"/>
+              <path d="M8 22 Q20 16 32 22" fill="none" stroke="rgba(0,0,0,0.1)" stroke-width="1.5" stroke-linecap="round"/>
               <circle cx="20" cy="18" r="3" fill="rgba(255,255,255,0.3)" />
             </svg>
           </div>
@@ -93,6 +93,14 @@
         </div>
       </div>
       <div v-if="loading && conv.messages.length>0" class="typing-indicator"><div class="typing-dot"/><div class="typing-dot"/><div class="typing-dot"/></div>
+      <div v-if="pendingApproval" class="approval-inline">
+        <span class="approval-inline-label">执行命令: <code>{{ pendingApproval.tool }}</code></span>
+        <pre class="approval-inline-cmd">{{ fmtApprovalInput(pendingApproval.input) }}</pre>
+        <div class="approval-inline-actions">
+          <button class="approval-btn deny" @click="approveTool(false)">取消</button>
+          <button class="approval-btn allow" @click="approveTool(true)">确认执行</button>
+        </div>
+      </div>
       <div ref="msgEnd"/>
     </div>
 
@@ -101,14 +109,47 @@
         <div v-for="(img,i) in pendingImages" :key="i" class="img-preview"><img :src="img.data"/><button class="img-remove" @click="pendingImages.splice(i,1)">&times;</button></div>
       </div>
       <div class="input-toolbar-top">
-        <select class="model-select" v-model="convModel" :disabled="loading">
-          <option v-for="m in currentModels" :key="m.value" :value="m.value">{{ m.label }}</option>
-        </select>
-        <button v-if="supportsSpeech" class="mic-btn-inline" :class="{recording:isRecording}" :title="isRecording?'停止':'语音'" @click="toggleSpeech">{{ isRecording?'⬤':'🎤' }}</button>
-        <button class="reasoning-btn" :class="{on:reasoningOn}" @click="reasoningOn=!reasoningOn" :title="reasoningOn?'关闭推理':'开启推理'"><Brain :size="15"/></button>
+        <div class="effort-dropdown">
+          <button ref="modelTrigger" class="effort-trigger model-trigger" :disabled="loading" @click="openModel" :class="{ open: modelOpen }">
+            <span class="effort-label">{{ convModelLabel || '模型' }}</span>
+            <span class="effort-arrow" :class="{ open: modelOpen }">▾</span>
+          </button>
+          <Teleport to="body">
+            <transition name="dropdown">
+              <div v-if="modelOpen" class="effort-menu" :style="modelMenuStyle" @click.stop>
+                <button v-for="m in currentModels" :key="m.value"
+                  class="effort-item" :class="{ active: convModel === m.value }"
+                  @click="convModel=m.value;modelOpen=false">
+                  <span class="effort-item-name">{{ m.label }}</span>
+                </button>
+              </div>
+            </transition>
+          </Teleport>
+        </div>
+        <div class="effort-dropdown">
+          <button ref="effortTrigger" class="effort-trigger" :disabled="loading" @click="openEffort" :class="{ open: effortOpen }">
+            <span class="effort-label">{{ effortLabel }}</span>
+            <span class="effort-arrow" :class="{ open: effortOpen }">▾</span>
+          </button>
+          <Teleport to="body">
+            <transition name="dropdown">
+              <div v-if="effortOpen" class="effort-menu" :style="effortMenuStyle" @click.stop>
+                <button v-for="opt in EFFORT_OPTIONS" :key="opt.value"
+                  class="effort-item" :class="{ active: reasoningEffort === opt.value }"
+                  @click="reasoningEffort=opt.value;effortOpen=false">
+                  <span class="effort-item-name">{{ opt.label }}</span>
+                  <span class="effort-item-desc">{{ opt.desc }}</span>
+                </button>
+              </div>
+            </transition>
+          </Teleport>
+        </div>
       </div>
       <div class="input-box">
-        <textarea ref="ta" v-model="text" placeholder="输入消息..." @keydown="onKeydown" @paste="onPaste" rows="1"/>
+        <div class="voice-input-wrap" :class="{ recording: isRecording }">
+          <div v-if="isRecording" class="voice-ripple"></div>
+          <textarea ref="ta" v-model="text" placeholder="Ctrl+空格 语音输入" @keydown="onKeydown" @paste="onPaste" rows="1"/>
+        </div>
         <button v-if="sendState==='idle'" class="send-btn-inline" :disabled="!text.trim() && pendingImages.length===0" @click="handleSend" title="发送"><ArrowUp :size="16"/></button>
         <button v-else-if="sendState==='loading'" class="send-btn-inline loading" title="发送中..."><span class="btn-spinner"/></button>
         <button v-else-if="sendState==='sent'" class="send-btn-inline sent" title="已发送"><Check :size="16" class="btn-check"/></button>
@@ -116,32 +157,19 @@
       </div>
     </div>
 
-    <div v-if="pendingApproval" class="approval-overlay" @click.self="approveTool(false)">
-      <div class="approval-dialog">
-        <div class="approval-icon">⚠️</div>
-        <div class="approval-title">确认执行命令</div>
-        <div class="approval-tool-name">{{ pendingApproval.tool }}</div>
-        <pre class="approval-input">{{ fmtApprovalInput(pendingApproval.input) }}</pre>
-        <div class="approval-warning">此操作需要你的批准。请确认命令安全后再执行。</div>
-        <div class="approval-actions">
-          <button class="setting-btn secondary" @click="approveTool(false)">拒绝</button>
-          <button class="setting-btn primary approval-allow" @click="approveTool(true)">批准执行</button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { Brain, Check, ArrowUp } from 'lucide-vue-next'
+import { Check, ArrowUp } from 'lucide-vue-next'
 import gsap from 'gsap'
 import { marked } from 'marked'
 import { animSpeed, Spring } from '../../animations/gsap'
 
 marked.setOptions({ breaks: true, gfm: true })
 
-const CHARS = { claude:{icon:'🦞',color:'#B7A48E',name:'Clawd'}, deepseek:{icon:'🐟',color:'#9BB7AA',name:'小鱼'}, openai:{icon:'⌨️',color:'#9DC0AF',name:'Coco'} }
+const CHARS = { claude:{icon:'<svg viewBox="0 0 24 24" fill="none" stroke="#D97757" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg>',color:'#D97757',name:'Claude'}, deepseek:{icon:'<svg viewBox="0 0 24 24" fill="#4C6EF5" style="width:16px;height:16px"><path d="M12 2l9 5v10l-9 5-9-5V7z"/></svg>',color:'#4C6EF5',name:'DeepSeek'}, openai:{icon:'<svg viewBox="0 0 24 24" fill="none" stroke="#10A37F" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>',color:'#10A37F',name:'OpenAI'} }
 const MODELS = {
   claude:[{value:'claude-sonnet-4-20250506',label:'Claude-Sonnet-4'},{value:'claude-opus-4-7',label:'Claude-Opus-4.7'}],
   deepseek:[{value:'deepseek-v4-flash',label:'DeepSeek-V4-Flash'},{value:'deepseek-v4-pro',label:'DeepSeek-V4-Pro'}],
@@ -150,7 +178,20 @@ const MODELS = {
 
 // ── State ──
 const loading=ref(false),sendState=ref('idle'),text=ref(''),pendingImages=ref([]),ctxMenu=ref(null)
-const agentSteps=ref([]),pendingApproval=ref(null),reasoningOn=ref(true),reasoningText=ref(''),reasoningExpanded=ref(true)
+const agentSteps=ref([]),pendingApproval=ref(null),reasoningEffort=ref('auto'),reasoningText=ref(''),reasoningExpanded=ref(true)
+const effortOpen=ref(false),modelOpen=ref(false)
+const modelTrigger=ref(null),effortTrigger=ref(null)
+const modelMenuStyle=ref({}),effortMenuStyle=ref({})
+function openModel(){ const r=modelTrigger.value?.getBoundingClientRect(); if(r){ modelMenuStyle.value={position:'fixed',bottom:(window.innerHeight-r.top+6)+'px',left:r.left+'px',zIndex:99999} }; modelOpen.value=!modelOpen.value; effortOpen.value=false }
+function openEffort(){ const r=effortTrigger.value?.getBoundingClientRect(); if(r){ effortMenuStyle.value={position:'fixed',bottom:(window.innerHeight-r.top+6)+'px',left:r.left+'px',zIndex:99999} }; effortOpen.value=!effortOpen.value; modelOpen.value=false }
+const convModelLabel=computed(()=>currentModels.value.find(m=>m.value===convModel.value)?.label||'')
+const EFFORT_OPTIONS=[
+  { value:'auto', label:'自动', desc:'自动调节' },
+  { value:'high', label:'High', desc:'标准推理' },
+  { value:'max',  label:'Max',  desc:'深度推理' },
+  { value:'xhigh',label:'XHigh',desc:'全力推理' },
+]
+const effortLabel=computed(()=>EFFORT_OPTIONS.find(o=>o.value===reasoningEffort.value)?.label||'自动')
 const elapsedTime=ref(0); let elapsedTimer=null
 const renaming=ref(null),renameText=ref(''),renameInput=ref(null)
 const ta=ref(null),msgEnd=ref(null),msgArea=ref(null)
@@ -166,8 +207,6 @@ const userAvatar=ref(localStorage.getItem('user-avatar')||''),avatarColor=ref(lo
 const welcomeName=computed(()=>(allAgents.value.find(a=>a.isActive)||{}).name||char.value.name)
 const welcomeIcon=computed(()=>(allAgents.value.find(a=>a.isActive)||{}).icon||char.value.icon)
 const welcomeColor=computed(()=>((allAgents.value.find(a=>a.isActive)||{}).color||char.value.color)+'18')
-const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition
-const supportsSpeech=ref(!!SpeechRecognition),isRecording=ref(false); let recognition=null
 
 // ── Scroll ──
 let userAtBottom=true,scrollObserver=null
@@ -196,6 +235,28 @@ function startTimer(){elapsedTime.value=0;elapsedTimer=setInterval(()=>{elapsedT
 function stopTimer(){if(elapsedTimer){clearInterval(elapsedTimer);elapsedTimer=null};elapsedTime.value=0}
 
 // ── Music Playback ──
+function handleMusicCmd(t) {
+  let a = window.__musicAudio;
+  // 下一首/换一首 → 直接切队列，不走 Agent
+  if (/^(下一首|换一首|切歌|next|跳过)/.test(t)) {
+    try {
+      let pl = JSON.parse(localStorage.getItem('music-playlist') || '[]');
+      let cur = window.__musicCurrentTrack;
+      if (pl.length > 0 && cur) {
+        let idx = pl.findIndex(function(s){return String(s.songId)===String(cur.songId)});
+        if (idx >= 0 && idx < pl.length - 1) {
+          let next = pl[idx + 1];
+          triggerMusicPlay(next.songId, next.name, next.artist, next.cover, '下一首');
+          return;
+        }
+      }
+    } catch(e) {}
+  }
+  // 暂停/继续
+  if (/^(暂停|stop)/.test(t)) { if(a) a.pause(); return; }
+  if (/^(继续|播放|resume)/.test(t)) { if(a) a.play().catch(function(){}); return; }
+}
+
 function getGlobalAudio() {
   if (!window.__musicAudio) {
     window.__musicAudio = new Audio();
@@ -294,10 +355,15 @@ function stripAndSaveMusicList(text) {
   return text.replace(/MUSIC_?LIST[\s\S]*$/i, '').trim();
 }
 
-// ── Speech ──
-function toggleSpeech(){if(isRecording.value){stopSpeech();return}if(!SpeechRecognition)return;recognition=new SpeechRecognition();recognition.continuous=true;recognition.interimResults=true;recognition.lang='zh-CN';recognition.onresult=e=>{let t='';for(let i=e.resultIndex;i<e.results.length;i++)t+=e.results[i][0].transcript;text.value=t};recognition.onerror=()=>stopSpeech();recognition.onend=()=>{isRecording.value=false;recognition=null};recognition.start();isRecording.value=true}
-function stopSpeech(){if(recognition){recognition.stop();recognition=null};isRecording.value=false}
-function onKeydown(e){if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();clearConv();return}if((e.metaKey||e.ctrlKey||e.shiftKey)&&e.key==='Enter')return;if(e.key==='Enter'){e.preventDefault();handleSend()}}
+// ── Ctrl+空格 语音输入 (本地 Whisper 识别) ──
+const isRecording=ref(false)
+let audioCtx=null,streamNode=null,scriptNode=null,pcmChunks=[],sampleRate=16000
+function encodeWAV(samples,sr){ const bits=16,bytes=bits/8; const len=samples.length*bytes; const buf=new ArrayBuffer(44+len),v=new DataView(buf); function w(s,o,l){ for(let i=0;i<l;i++)v.setUint8(o+i,s.charCodeAt(i)) } w('RIFF',0,4); v.setUint32(4,36+len,true); w('WAVE',8,4); w('fmt ',12,4); v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true); v.setUint32(24,sr,true); v.setUint32(28,sr*bytes,true); v.setUint16(32,bytes,true); v.setUint16(34,bits,true); w('data',36,4); v.setUint32(40,len,true); let off=44; for(let i=0;i<samples.length;i++){ const s=Math.max(-1,Math.min(1,samples[i])); v.setInt16(off,s<0?s*0x8000:s*0x7FFF,true); off+=2 } return buf }
+function playRecordSound(){ try{ const a=new AudioContext(); const o=a.createOscillator(); const g=a.createGain(); o.connect(g); g.connect(a.destination); o.frequency.value=800; g.gain.value=0.08; o.start(); g.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.2); o.stop(a.currentTime+0.2) }catch{} }
+async function startRecording(){ if(isRecording.value||loading.value)return; try{ const stream=await navigator.mediaDevices.getUserMedia({audio:{sampleRate,channelCount:1,echoCancellation:true,noiseSuppression:true}}); playRecordSound(); isRecording.value=true; pcmChunks=[]; audioCtx=new AudioContext({sampleRate}); streamNode=audioCtx.createMediaStreamSource(stream); scriptNode=audioCtx.createScriptProcessor(4096,1,1); scriptNode.onaudioprocess=e=>{ if(!isRecording.value)return; pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0))) }; streamNode.connect(scriptNode); scriptNode.connect(audioCtx.destination) }catch(e){ text.value='[麦:'+(e.message||e.name||'?')+']'; isRecording.value=false } }
+async function stopRecording(){ if(!isRecording.value)return; isRecording.value=false; if(scriptNode){ scriptNode.disconnect(); scriptNode=null } if(streamNode){ streamNode.disconnect(); streamNode=null } if(audioCtx){ audioCtx.close(); audioCtx=null } await new Promise(r=>setTimeout(r,200)); if(!pcmChunks.length){ text.value='[无音频]'; return } const all=new Float32Array(pcmChunks.reduce((s,c)=>s+c.length,0)); let off=0; for(const c of pcmChunks){ all.set(c,off); off+=c.length } pcmChunks=[]; const wav=encodeWAV(all,sampleRate); const bytes=new Uint8Array(wav); let b64=''; for(let i=0;i<bytes.length;i+=4096)b64+=String.fromCharCode(...bytes.slice(i,i+4096)); b64=btoa(b64); const result=await window.electronAPI?.voiceSTT(b64); if(result?.error){ text.value='[STT:'+result.error+']' } else if(result?.text){ text.value=text.value?text.value+' '+result.text:result.text } else { text.value='[未识别]' } }
+function onVoiceEvent(type){ if(type==='keyDown'&&!isRecording.value){ startRecording() }else if(type==='keyUp'){ stopRecording() } }
+function onKeydown(e){ if(loading.value)return; if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();clearConv();return}if((e.metaKey||e.ctrlKey||e.shiftKey)&&e.key==='Enter')return;if(e.key==='Enter'){e.preventDefault();handleSend()}}
 function onPaste(e){const items=e.clipboardData?.items;if(!items)return;for(const item of items){if(item.type.startsWith('image/')){e.preventDefault();const f=item.getAsFile();if(!f)continue;const r=new FileReader();r.onload=ev=>pendingImages.value.push({data:ev.target.result,file:f});r.readAsDataURL(f)}}}
 
 // ── Stop ──
@@ -307,35 +373,34 @@ function stopGeneration(){if(!loading.value)return;if(activeAbortController){act
 function approveTool(ok){if(pendingApproval.value?.approvalId){if(!ok){const el=document.querySelector('.approval-dialog');if(el){el.classList.add('shake');setTimeout(()=>el.classList.remove('shake'),400)}setTimeout(()=>{window.electronAPI?.agentApproveTool(pendingApproval.value.approvalId,ok);agentSteps.value.push({type:'thought',content:'用户拒绝了执行'});pendingApproval.value=null},300);return}window.electronAPI?.agentApproveTool(pendingApproval.value.approvalId,ok);agentSteps.value.push({type:'thought',content:'用户批准了执行'});pendingApproval.value=null}}
 
 // ── Send ──
-async function handleSend(){const t=text.value.trim();const hi=pendingImages.value.length>0;if(!t&&!hi)return;let uc=t;const il=hi?pendingImages.value.map(i=>i.data):[];text.value='';pendingImages.value=[];const c=conv.value;const um={role:'user',content:uc,timestamp:new Date()};if(il.length>0){um.images=il;um._previewImages=il}c.messages.push(um);const hm={role:'user',content:uc};if(il.length>0){hm.images=il;hm.content=uc||'请分析这张图片'}// 注入待发送的音乐反馈（暂存，发送成功后再清空）
-let fbqBackup=null;try{const fbq=JSON.parse(localStorage.getItem('music-feedback-queue')||'[]');if(fbq.length>0){fbqBackup=fbq;const fbText='[系统通知] 用户最近的音乐行为: '+fbq.map(f=>`${f.action==='complete'?'听完了':f.action==='skip_early'?'快速切掉了':f.action==='skip'?'切掉了':'重播了'}《${f.songName}》(${f.artist})`).join('; ');c.history.push({role:'user',content:fbText})}}catch{}c.history.push(hm);loading.value=true;sendState.value='loading';reasoningText.value='';reasoningExpanded.value=true;startTimer();let sc=await window.electronAPI?.loadConfig();if(!sc){const s=localStorage.getItem('llm-config');if(s){try{sc=JSON.parse(s)}catch{}}}if(!sc){stopTimer();loading.value=false;sendState.value='idle';return}if(convModel.value)sc.model=convModel.value;sc.reasoningEffort=reasoningOn.value?'max':'none';const ok=await runAgent(c,sc);
+async function handleSend(){let t=text.value.trim();let hi=pendingImages.value.length>0;if(!t&&!hi)return;let activatedSkill='';if(t.startsWith('/')){let sp=t.indexOf(' ');let sn=sp>0?t.slice(1,sp):t.slice(1);if(sn.length>0){activatedSkill=sn;t=sp>0?t.slice(sp+1).trim():'请执行你的任务'}};// 音乐控制命令前端拦截（不走 Agent）
+if(/^(下一首|换一首|切歌|next|跳过|暂停|继续|停止|播放|静音|音量)/.test(t)){text.value='';pendingImages.value=[];handleMusicCmd(t);return};let uc=t;const il=hi?pendingImages.value.map(i=>i.data):[];text.value='';pendingImages.value=[];const c=conv.value;const um={role:'user',content:uc,timestamp:new Date()};if(il.length>0){um.images=il;um._previewImages=il}c.messages.push(um);const hm={role:'user',content:uc};if(il.length>0){hm.images=il;hm.content=uc||'请分析这张图片'}// 注入待发送的音乐反馈（暂存，发送成功后再清空）
+let fbqBackup=null;try{const fbq=JSON.parse(localStorage.getItem('music-feedback-queue')||'[]');if(fbq.length>0){fbqBackup=fbq;const fbText='[系统通知] 用户最近的音乐行为: '+fbq.map(f=>`${f.action==='complete'?'听完了':f.action==='skip_early'?'快速切掉了':f.action==='skip'?'切掉了':'重播了'}《${f.songName}》(${f.artist})`).join('; ');c.history.push({role:'user',content:fbText})}}catch{}c.history.push(hm);loading.value=true;sendState.value='loading';reasoningText.value='';reasoningExpanded.value=true;startTimer();let sc=await window.electronAPI?.loadConfig();if(!sc){const s=localStorage.getItem('llm-config');if(s){try{sc=JSON.parse(s)}catch{}}}if(!sc){stopTimer();loading.value=false;sendState.value='idle';return}if(convModel.value)sc.model=convModel.value;sc.reasoningEffort=reasoningEffort.value;const ok=await runAgent(c,sc,activatedSkill||'');
 // 发送成功后清空反馈队列
 if(ok&&fbqBackup){try{localStorage.setItem('music-feedback-queue','[]')}catch{}}
-if(ok)return;await runLegacy(c)}
+if(!ok){stopTimer();loading.value=false;sendState.value='idle'}}
 
-async function runAgent(c,config){let mi=-1,us=[],fullContent='',firstContent=true,msgCreated=false;cleanupListeners(null);activeAbortController=new AbortController();const sig=activeAbortController.signal;try{const rd=await window.electronAPI?.agentGetReady();if(!rd?.ready)return false;const steps=[];agentSteps.value=steps;const lr={text:''};function em(){if(!msgCreated){c.messages.push({role:'assistant',content:'',timestamp:new Date(),_reasoning:'',_reasoningOpen:true});mi=c.messages.length-1;msgCreated=true}};function sd(){nextTick(()=>msgEnd.value?.scrollIntoView({behavior:'smooth'}))};us.push(window.electronAPI.onAgentThought(d=>{const x=d?.data||d;const t=typeof x==='string'?x:x?.content||'';if(t){steps.push({type:'thought',content:t});sd()}}));us.push(window.electronAPI.onAgentAction(d=>{const x=d?.data||d;steps.push({type:'action',tool:x?.tool||'未知工具',input:x?.input||x,round:x?.round||''});sd()}));us.push(window.electronAPI.onAgentObservation(d=>{const x=d?.data||d;steps.push({type:'observation',tool:x?.tool||'工具',content:x?.content||String(x),round:x?.round||''});sd()}));us.push(window.electronAPI.onAgentChunk(d=>{if(sig.aborted)return;em();const x=d?.data||d;if(firstContent){fullContent='';firstContent=false};fullContent+=x?.content||'';if(mi>=0&&c.messages[mi])c.messages[mi].content=fullContent;sd()}));us.push(window.electronAPI.onAgentReasoningChunk(d=>{if(sig.aborted)return;em();const x=d?.data||d;const ck=x?.content||'';if(ck==='.')return;lr.text+=ck;reasoningText.value=lr.text;sd()}));us.push(window.electronAPI.onAgentDone(d=>{if(sig.aborted)return;em();const x=d?.data||d;const finalContent=x?.content||fullContent;if(finalContent&&mi>=0&&c.messages[mi]){stripAndSaveMusicList(finalContent);const parsed=parseNowPlaying(finalContent);c.messages[mi].content=parsed.content;if(parsed.song){triggerMusicPlay(parsed.song.songId,parsed.song.name,parsed.song.artist,parsed.song.cover,parsed.song.reason)}}if(mi>=0&&c.messages[mi]){c.messages[mi].elapsed=elapsedTime.value;c.messages[mi]._steps=[...steps]}}));us.push(window.electronAPI.onAgentError(d=>{if(sig.aborted)return;em();const x=d?.data||d;if(mi>=0&&c.messages[mi])c.messages[mi].content=`❌ ${x?.content||'Agent 执行出错'}`}));us.push(window.electronAPI.onAgentToolApprovalRequest(d=>{const x=d?.data||d;pendingApproval.value={approvalId:x?.approval_id||'',tool:x?.tool||'',input:x?.input||{}}}));// 注入音乐上下文
-var _mCtx = window.__musicCurrentTrack;
-var _ctxMsg = null;
+async function runAgent(c,config,activatedSkill){let mi=-1,us=[],fullContent='',firstContent=true,msgCreated=false;cleanupListeners(null);activeAbortController=new AbortController();const sig=activeAbortController.signal;try{const rd=await window.electronAPI?.agentGetReady();if(!rd?.ready)return false;const steps=[];agentSteps.value=steps;const lr={text:''};function em(){if(!msgCreated){c.messages.push({role:'assistant',content:'',timestamp:new Date(),_reasoning:'',_reasoningOpen:true});mi=c.messages.length-1;msgCreated=true}};function sd(){nextTick(()=>msgEnd.value?.scrollIntoView({behavior:'smooth'}))};us.push(window.electronAPI.onAgentThought(d=>{const x=d?.data||d;const t=typeof x==='string'?x:x?.content||'';if(t){steps.push({type:'thought',content:t});sd()}}));us.push(window.electronAPI.onAgentAction(d=>{const x=d?.data||d;steps.push({type:'action',tool:x?.tool||'未知工具',input:x?.input||x,round:x?.round||''});sd()}));us.push(window.electronAPI.onAgentObservation(d=>{const x=d?.data||d;steps.push({type:'observation',tool:x?.tool||'工具',content:x?.content||String(x),round:x?.round||''});sd()}));us.push(window.electronAPI.onAgentChunk(d=>{if(sig.aborted)return;em();const x=d?.data||d;if(firstContent){fullContent='';firstContent=false};fullContent+=x?.content||'';if(mi>=0&&c.messages[mi])c.messages[mi].content=fullContent.replace(/^\[emotion:\w+\]\s*\n?/,'');sd()}));us.push(window.electronAPI.onAgentReasoningChunk(d=>{if(sig.aborted)return;em();const x=d?.data||d;const ck=x?.content||'';if(ck==='.')return;lr.text+=ck;reasoningText.value=lr.text;sd()}));us.push(window.electronAPI.onAgentDone(d=>{if(sig.aborted)return;em();const x=d?.data||d;const finalContent=(x?.content||fullContent).replace(/^\[emotion:\w+\]\s*\n?/,'');if(finalContent&&mi>=0&&c.messages[mi]){stripAndSaveMusicList(finalContent);const parsed=parseNowPlaying(finalContent);c.messages[mi].content=parsed.content;if(parsed.song){triggerMusicPlay(parsed.song.songId,parsed.song.name,parsed.song.artist,parsed.song.cover,parsed.song.reason)}}if(mi>=0&&c.messages[mi]){c.messages[mi].elapsed=elapsedTime.value;c.messages[mi]._steps=[...steps]}}));us.push(window.electronAPI.onAgentError(d=>{if(sig.aborted)return;em();const x=d?.data||d;if(mi>=0&&c.messages[mi])c.messages[mi].content=`❌ ${x?.content||'Agent 执行出错'}`}));us.push(window.electronAPI.onAgentToolApprovalRequest(d=>{const x=d?.data||d;pendingApproval.value={approvalId:x?.approval_id||'',tool:x?.tool||'',input:x?.input||{}}}));// 注入音乐上下文
+let _mCtx = window.__musicCurrentTrack;
+let _ctxMsg = null;
 if (_mCtx && _mCtx.songId) {
   try {
-    var _pl = JSON.parse(localStorage.getItem('music-playlist') || '[]');
-    var _curIdx = _pl.findIndex(function(s){return String(s.songId)===String(_mCtx.songId)});
+    let _pl = JSON.parse(localStorage.getItem('music-playlist') || '[]');
+    let _curIdx = _pl.findIndex(function(s){return String(s.songId)===String(_mCtx.songId)});
     _ctxMsg = '[系统] 当前正在播放: ' + _mCtx.name + ' - ' + (_mCtx.artist||'');
     if (_curIdx >= 0 && _curIdx < _pl.length - 1) {
-      var _next = _pl.slice(_curIdx+1, _curIdx+4).map(function(s){return s.name+' - '+s.artist+' (songId='+s.songId+')'}).join('; ');
+      let _next = _pl.slice(_curIdx+1, _curIdx+4).map(function(s){return s.name+' - '+s.artist+' (songId='+s.songId+')'}).join('; ');
       if (_next) _ctxMsg += '。接下来: ' + _next;
     }
     if (_curIdx > 0) {
-      var _prev = _pl[_curIdx-1];
+      let _prev = _pl[_curIdx-1];
       if (_prev) _ctxMsg += '。上一首: ' + _prev.name + ' - ' + _prev.artist + ' (songId='+_prev.songId+')';
     }
   } catch(e) {}
-};const ph=JSON.parse(JSON.stringify(c.history));if(_ctxMsg){ph.push({role:'user',content:_ctxMsg})};const pc=JSON.parse(JSON.stringify(config));pc.userNickname=localStorage.getItem('user-nickname')||'';pc.agentPersonality=localStorage.getItem('agent-personality')||'default';pc.customPersonalities=JSON.parse(localStorage.getItem('custom-personalities')||'[]');const result=await window.electronAPI.agentChat(pc,ph,`conv-${c.id}`);cleanupListeners(us);const sr=lr.text||reasoningText.value;if(mi>=0&&c.messages[mi]?.role==='assistant'&&sr){c.messages[mi]={...c.messages[mi],_reasoning:sr,_reasoningOpen:true}};reasoningText.value='';agentSteps.value=[];reasoningExpanded.value=false;pendingApproval.value=null;stopTimer();loading.value=false;sendState.value='sent';setTimeout(()=>{if(sendState.value==='sent')sendState.value='idle'},1500);activeAbortController=null;let fc=c.messages[mi]?.content||'';stripAndSaveMusicList(fc);if(fc){const parsed=parseNowPlaying(fc);if(parsed.song){fc=parsed.content;if(mi>=0)c.messages[mi].content=fc;triggerMusicPlay(parsed.song.songId,parsed.song.name,parsed.song.artist,parsed.song.cover,parsed.song.reason)}};if(fc&&!fc.startsWith('❌'))c.history.push({role:'assistant',content:fc});return true}catch(err){console.error('[Agent]',err);if(mi>=0&&c.messages[mi]?.role==='assistant')c.messages.pop();return false}finally{cleanupListeners(us);agentSteps.value=[];pendingApproval.value=null;activeAbortController=null}}
-
-async function runLegacy(c){try{const{llmService}=await import('../../llm/LLMProvider');if(!llmService.isInitialized()){loading.value=false;sendState.value='idle';return};let full='';c.messages.push({role:'assistant',content:'',timestamp:new Date()});await llmService.chat([{role:'system',content:'你是一个桌面上的智能助手。回复简洁高效。'},...c.history],chunk=>{full+=chunk;c.messages[c.messages.length-1].content=full});c.history.push({role:'assistant',content:full})}catch(err){c.messages.push({role:'assistant',content:`❌ ${err}`,timestamp:new Date()})}finally{stopTimer();loading.value=false;sendState.value='idle'}}
+};const ph=JSON.parse(JSON.stringify(c.history));if(_ctxMsg){ph.splice(Math.max(0,ph.length-1),0,{role:'user',content:_ctxMsg})};const pc=JSON.parse(JSON.stringify(config));pc.userNickname=localStorage.getItem('user-nickname')||'';pc.agentPersonality=localStorage.getItem('agent-personality')||'default';pc.customPersonalities=JSON.parse(localStorage.getItem('custom-personalities')||'[]');pc.agentId=activeAgentId.value||'';const result=await window.electronAPI.agentChat(pc,ph,`conv-${c.id}`,'chat',activatedSkill||'');cleanupListeners(us);const sr=lr.text||reasoningText.value;if(mi>=0&&c.messages[mi]?.role==='assistant'&&sr){c.messages[mi]={...c.messages[mi],_reasoning:sr,_reasoningOpen:true}};reasoningText.value='';agentSteps.value=[];reasoningExpanded.value=false;pendingApproval.value=null;stopTimer();loading.value=false;sendState.value='sent';setTimeout(()=>{if(sendState.value==='sent')sendState.value='idle'},1500);activeAbortController=null;let fc=(c.messages[mi]?.content||'').replace(/^\[emotion:\w+\]\s*\n?/,'');stripAndSaveMusicList(fc);if(fc){const parsed=parseNowPlaying(fc);if(parsed.song){fc=parsed.content;if(mi>=0)c.messages[mi].content=fc;triggerMusicPlay(parsed.song.songId,parsed.song.name,parsed.song.artist,parsed.song.cover,parsed.song.reason)}};if(fc&&!fc.startsWith('❌'))c.history.push({role:'assistant',content:fc});return true}catch(err){console.error('[Agent]',err);if(mi>=0&&c.messages[mi]?.role==='assistant')c.messages.pop();return false}finally{cleanupListeners(us);agentSteps.value=[];pendingApproval.value=null;activeAbortController=null}}
 
 // ── Feed ──
-async function feedFile(data){const c=conv.value;const dn=data.name||'未知文件';let um='';let hasBinary=false;let binaryImages=[];if(window.electronAPI?.readFileContent){const r=await window.electronAPI.readFileContent(data.path);if(r.success){if(r.binary){hasBinary=true;const kb=Math.round(r.size/1024);um=`📎 喂食了文件: ${dn} (${kb}KB, ${r.ext})\n\n[系统已将文件内容编码，Agent 可使用 read_image 工具查看]`;binaryImages.push(r.base64)}else{um=`📎 喂食了文件: ${dn}\n\n\`\`\`\n${r.content.slice(0,3000)}\n\`\`\``}}}if(!um)um=`📎 喂食了文件: ${dn}（无法读取文件内容）`;const m={role:'user',content:um,timestamp:new Date()};if(hasBinary){m.images=binaryImages;m._previewImages=binaryImages}c.messages.push(m);const hm={role:'user',content:um};if(hasBinary){hm.images=binaryImages}c.history.push(hm);loading.value=true;let sc=await window.electronAPI?.loadConfig();if(!sc){const s=localStorage.getItem('llm-config');if(s){try{sc=JSON.parse(s)}catch{}}};if(!sc){loading.value=false;sendState.value='idle';return};if(convModel.value)sc.model=convModel.value;const ok=await runAgent(c,sc);if(ok)return;await runLegacy(c)}
+async function feedFile(data){const c=conv.value;const dn=data.name||'未知文件';let um='';let hasBinary=false;let binaryImages=[];if(window.electronAPI?.readFileContent){const r=await window.electronAPI.readFileContent(data.path);if(r.success){if(r.binary){hasBinary=true;const kb=Math.round(r.size/1024);um=`📎 喂食了文件: ${dn} (${kb}KB, ${r.ext})\n\n[系统已将文件内容编码，Agent 可使用 read_image 工具查看]`;binaryImages.push(r.base64)}else{um=`📎 喂食了文件: ${dn}\n\n\`\`\`\n${r.content.slice(0,3000)}\n\`\`\``}}}if(!um)um=`📎 喂食了文件: ${dn}（无法读取文件内容）`;const m={role:'user',content:um,timestamp:new Date()};if(hasBinary){m.images=binaryImages;m._previewImages=binaryImages}c.messages.push(m);const hm={role:'user',content:um};if(hasBinary){hm.images=binaryImages}c.history.push(hm);loading.value=true;let sc=await window.electronAPI?.loadConfig();if(!sc){const s=localStorage.getItem('llm-config');if(s){try{sc=JSON.parse(s)}catch{}}};if(!sc){loading.value=false;sendState.value='idle';return};if(convModel.value)sc.model=convModel.value;const ok=await runAgent(c,sc,'');if(!ok){stopTimer();loading.value=false;sendState.value='idle'}}
 
 // ── Anim ──
 function onTabBeforeEnter(el){el.style.opacity='0';el.style.transform='translateX(-12px) scale(0.9)'}
@@ -350,6 +415,7 @@ watch(loading,v=>window.electronAPI?.notifyWorking(v))
 
 // ── Lifecycle ──
 let removeFileFed=null,agentPoll=null,unwatchRename=null,unwatchApproval=null
-onMounted(async()=>{try{const r=await window.electronAPI?.agentList();allAgents.value=r?.data?.agents||r?.agents||[]}catch{allAgents.value=[]};removeFileFed=window.electronAPI?.onFileFed?.(d=>feedFile(d));agentPoll=setInterval(()=>{const s=localStorage.getItem('active-agent-id');if(s&&s!==activeAgentId.value)activeAgentId.value=s},2000);nextTick(()=>{setupScrollObserver();animateWelcome()});unwatchRename=watch(renaming,v=>{if(v!==null)nextTick(()=>animateDialog('.rename-dialog'))});unwatchApproval=watch(pendingApproval,v=>{if(v)nextTick(()=>animateDialog('.approval-dialog'))})})
-onUnmounted(()=>{removeFileFed?.();stopSpeech();if(agentPoll)clearInterval(agentPoll);if(elapsedTimer)clearInterval(elapsedTimer);if(scrollObserver)scrollObserver.disconnect();if(activeAbortController){activeAbortController.abort();activeAbortController=null};unwatchRename?.();unwatchApproval?.()})
+let unvoiceToggle=null
+onMounted(async()=>{try{const r=await window.electronAPI?.agentList();allAgents.value=r?.data?.agents||r?.agents||[]}catch{allAgents.value=[]};removeFileFed=window.electronAPI?.onFileFed?.(d=>feedFile(d));unvoiceToggle=window.electronAPI?.onVoiceEvent?.(onVoiceEvent);agentPoll=setInterval(()=>{const s=localStorage.getItem('active-agent-id');if(s&&s!==activeAgentId.value)activeAgentId.value=s},2000);nextTick(()=>{setupScrollObserver();animateWelcome()});unwatchRename=watch(renaming,v=>{if(v!==null)nextTick(()=>animateDialog('.rename-dialog'))});unwatchApproval=watch(pendingApproval,v=>{if(v)nextTick(()=>animateDialog('.approval-dialog'))});})
+onUnmounted(()=>{removeFileFed?.();unvoiceToggle?.();stopRecording();if(agentPoll)clearInterval(agentPoll);if(elapsedTimer)clearInterval(elapsedTimer);if(scrollObserver)scrollObserver.disconnect();if(activeAbortController){activeAbortController.abort();activeAbortController=null};unwatchRename?.();unwatchApproval?.()})
 </script>

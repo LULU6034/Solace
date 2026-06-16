@@ -1,5 +1,5 @@
 <template>
-  <div class="mini-player" v-if="currentTrack" :class="{ playing: isPlaying, expanded: showVolume }">
+  <div class="mini-player" v-if="currentTrack" :class="{ playing: isPlaying, expanded: showVolume }" @dblclick="toggleVolume">
     <!-- 封面 -->
     <div class="mp-art" @click="togglePlay">
       <img v-if="cover" :src="cover + '?param=80y80'" class="mp-art-img" />
@@ -86,6 +86,7 @@ const currentTime = ref(0)
 const duration = ref(0)
 const volume = ref(1)
 const muted = ref(false)
+const showVolume = ref(false)
 const nameInner = ref(null)
 const nameOverflow = ref(false)
 
@@ -122,8 +123,8 @@ async function playNextFromPlaylist() {
   try {
     const pl = JSON.parse(localStorage.getItem('music-playlist') || '[]');
     if (!pl.length) return false;
-    const curId = currentTrack.value?.songId;
-    let idx = curId ? pl.findIndex(s => s.songId === curId) : -1;
+    const curId = currentTrack.value?.songId || window.__musicCurrentTrack?.songId;
+    let idx = curId ? pl.findIndex(s => String(s.songId) === String(curId)) : -1;
     // 找到当前歌 → 播下一首；找不到 → 从第一首开始；已到末尾 → 循环回第一首
     if (idx >= 0 && idx < pl.length - 1) {
       const next = pl[idx + 1];
@@ -245,6 +246,8 @@ function toggleMute() {
   }
 }
 
+function toggleVolume() { showVolume.value = !showVolume.value }
+
 function onVolume(e) {
   const v = parseInt(e.target.value) / 100
   volume.value = v
@@ -317,31 +320,31 @@ onUnmounted(() => {
   display: flex; align-items: center; gap: 0;
   margin-left: auto; flex-shrink: 0;
   height: 36px; padding: 0 6px 0 4px; border-radius: 20px;
-  background: rgba(20, 22, 32, 0.7);
-  border: 1px solid rgba(255,255,255,0.05);
+  background: rgba(255,255,255,0.7);
+  border: 1px solid rgba(0,0,0,0.06);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
   overflow: hidden;
 }
 .mini-player.playing {
-  border-color: rgba(109,124,255,0.2);
-  box-shadow: 0 0 16px rgba(109,124,255,0.06);
+  border-color: rgba(88,104,240,0.2);
+  box-shadow: 0 0 16px rgba(88,104,240,0.08);
 }
 
 /* ═══ 封面 ═══ */
 .mp-art {
   width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%;
   overflow: hidden; position: relative; cursor: pointer;
-  background: linear-gradient(145deg, #1b1e2f, #0f111c);
-  box-shadow: 0 1px 4px rgba(0,0,0,0.4), inset 0 0 0 1px rgba(255,255,255,0.04);
+  background: linear-gradient(145deg, #e8eaf2, #dde0ec);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08), inset 0 0 0 1px rgba(0,0,0,0.04);
 }
 .mini-player.playing .mp-art {
   animation: artBreathe 2.6s ease-in-out infinite;
 }
 @keyframes artBreathe {
-  0%,100%{box-shadow:0 0 0 1px rgba(109,124,255,0.18),0 0 10px rgba(109,124,255,0.06)}
-  50%{box-shadow:0 0 0 1px rgba(109,124,255,0.4),0 0 18px rgba(109,124,255,0.14)}
+  0%,100%{box-shadow:0 0 0 1px rgba(109,124,255,0.18),0 0 10px rgba(88,104,240,0.08)}
+  50%{box-shadow:0 0 0 1px rgba(88,104,240,0.3),0 0 18px rgba(109,124,255,0.14)}
 }
 .mp-art-img {
   width: 100%; height: 100%; object-fit: cover; border-radius: 50%;
@@ -352,8 +355,8 @@ onUnmounted(() => {
 @keyframes artSpin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
 .mp-art-fallback {
   width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
-  background: radial-gradient(circle at 30% 20%, rgba(109,124,255,0.25), rgba(20,22,44,0.9));
-  font-size: 12px; color: rgba(255,255,255,0.4);
+  background: radial-gradient(circle at 30% 20%, rgba(88,104,240,0.2), #e0e2ef);
+  font-size: 12px; color: rgba(0,0,0,0.3);
 }
 .mp-art-overlay {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
@@ -369,7 +372,7 @@ onUnmounted(() => {
   line-height: 1.2;
 }
 .mp-name {
-  font-size: 11px; font-weight: 600; color: #eeeff5; letter-spacing: -0.1px;
+  font-size: 11px; font-weight: 600; color: var(--text-primary); letter-spacing: -0.1px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .mp-name.scroll .mp-name-inner {
@@ -388,20 +391,20 @@ onUnmounted(() => {
 .mp-progress { width: 56px; flex-shrink: 0; }
 .mp-slider {
   -webkit-appearance: none; width: 100%; height: 3px; border-radius: 4px; cursor: pointer;
-  background: linear-gradient(to right, #6d7cff 0%, #6d7cff var(--fill, 0%), rgba(255,255,255,0.08) var(--fill), rgba(255,255,255,0.08) 100%);
+  background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--fill, 0%), rgba(0,0,0,0.07) var(--fill), rgba(0,0,0,0.07) 100%);
   outline: none; margin: 0;
 }
 .mp-slider::-webkit-slider-thumb {
   -webkit-appearance: none; width: 10px; height: 10px; border-radius: 50%; background: #fff;
-  box-shadow: 0 0 8px rgba(109,124,255,0.4); cursor: pointer; transition: transform 0.12s;
+  box-shadow: 0 0 8px rgba(88,104,240,0.3); cursor: pointer; transition: transform 0.12s;
 }
-.mp-slider::-webkit-slider-thumb:hover { transform: scale(1.25); background: #6d7cff; }
+.mp-slider::-webkit-slider-thumb:hover { transform: scale(1.25); background: var(--accent); }
 
 /* ═══ 控制按钮 ═══ */
 .mp-ctrls { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
 .mp-btn {
   width: 26px; height: 26px; border-radius: 50%; border: none;
-  background: transparent; color: rgba(192,196,208,0.6);
+  background: transparent; color: rgba(0,0,0,0.35);
   cursor: pointer; display: flex; align-items: center; justify-content: center;
   transition: all 0.2s cubic-bezier(0.2,0.9,0.4,1.1);
 }
@@ -432,7 +435,7 @@ onUnmounted(() => {
 .mp-vol-btn:hover { color: #c0c4d0; background: rgba(109,124,255,0.08); }
 .mp-vol-slider {
   -webkit-appearance: none; width: 52px; height: 3px; border-radius: 4px; cursor: pointer;
-  background: linear-gradient(to right, rgba(192,196,208,0.65) 0%, rgba(192,196,208,0.65) var(--vol-fill, 80%), rgba(255,255,255,0.06) var(--vol-fill), rgba(255,255,255,0.06) 100%);
+  background: linear-gradient(to right, rgba(192,196,208,0.65) 0%, rgba(192,196,208,0.65) var(--vol-fill, 80%), rgba(0,0,0,0.06) var(--vol-fill), rgba(0,0,0,0.06) 100%);
   outline: none;
 }
 .mp-vol-slider::-webkit-slider-thumb {

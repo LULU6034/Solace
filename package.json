@@ -1,14 +1,15 @@
 {
-  "name": "ai-desktop-pet-electron",
+  "name": "solace",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && cross-env ELECTRON_IS_DEV=true VITE_PORT=5173 electron .\"",
     "build": "vite build",
     "preview": "vite preview",
     "electron:dev": "cross-env ELECTRON_IS_DEV=true electron .",
-    "electron:build": "vite build && electron-builder",
+    "electron:build": "vite build && node scripts/gen-icons.cjs && electron-builder",
+    "gen-icons": "node scripts/gen-icons.cjs",
     "postinstall": "patch-package"
   },
   "main": "electron/main.cjs",
@@ -24,6 +25,7 @@
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
     "electron": "^42.2.0",
+    "electron-updater": "^6.8.9",
     "gsap": "^3.15.0",
     "hono": "^4.12.23",
     "js-yaml": "^4.1.1",
@@ -49,7 +51,38 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.6",
+    "electron-builder": "^26.0.12",
     "patch-package": "^8.0.1",
     "vite": "^8.0.12"
+  },
+  "build": {
+    "appId": "com.solace.app",
+    "productName": "Solace",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "server/**/*",
+      "plugins-builtin/**/*",
+      "skills-builtin/**/*",
+      "data/**/*",
+      "public/**/*",
+      "!node_modules/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "public/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "LULU6034",
+      "repo": "Solace"
+    }
   }
 }

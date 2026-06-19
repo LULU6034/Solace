@@ -110,54 +110,6 @@
           <p v-if="connMessage" class="conn-banner" :class="connStatus">{{ connMessage }}</p>
         </div>
 
-        <!-- 助手 -->
-        <div v-if="activeCat === 'pet'" class="cat-content">
-          <!-- 快速风格预设 -->
-          <div class="sect-label">快速风格</div>
-          <div class="style-chips">
-            <button v-for="p in personalityPresets" :key="p.id" class="style-chip" @click="applyPreset(p)">{{ p.icon }} {{ p.name }}</button>
-          </div>
-
-          <!-- 身份描述 -->
-          <div class="sect-label">身份描述 <small style="color:var(--text-muted)">告诉 AI 它是什么角色</small></div>
-          <textarea v-model="editIdentity" class="setting-textarea" rows="3" placeholder="我是彩铅，一只戴眼镜的博学小狗..."></textarea>
-
-          <!-- 行为风格 -->
-          <div class="sect-label">行为风格 <small style="color:var(--text-muted)">定义 AI 的说话方式</small></div>
-          <textarea v-model="editIshiki" class="setting-textarea" rows="4" placeholder="用学者的口吻说话，偶尔用汪汪开头..."></textarea>
-
-          <button class="setting-btn primary" @click="savePersonality" :disabled="savingPersonality">保存人格设定</button>
-          <span v-if="saveMsg" class="save-msg">{{ saveMsg }}</span>
-
-          <!-- Agent 管理 -->
-          <div class="sect-label" style="margin-top:12px">角色管理</div>
-          <div class="agent-list">
-            <div v-for="a in agentList" :key="a.id" class="agent-row" :class="{ active: a.isActive }">
-              <span class="agent-row-icon">{{ a.icon || '🐶' }}</span>
-              <div class="agent-row-info">
-                <span class="agent-row-name">
-                  {{ a.name }}
-                  <span v-if="a.isBuiltin" class="agent-row-badge">内置</span>
-                </span>
-                <span class="agent-row-meta">{{ a.config?.provider || 'claude' }} · {{ a.memoryCount || 0 }} 条记忆</span>
-              </div>
-              <button v-if="!a.isActive" class="agent-row-btn" @click="switchAgent(a.id)">切换</button>
-              <button v-if="!a.isBuiltin" class="agent-row-del" @click="deleteAgent(a.id)" title="删除">✕</button>
-            </div>
-          </div>
-          <div class="agent-create" v-if="showAgentCreate">
-            <input v-model="newAgentName" class="setting-input" placeholder="角色名称" style="width:140px" />
-            <select v-model="newAgentPreset" class="setting-select" style="width:130px">
-              <option value="">默认风格</option>
-              <option v-for="p in personalityPresets" :key="p.id" :value="p.id">{{ p.icon }} {{ p.name }}</option>
-            </select>
-            <button class="setting-btn primary" @click="createAgent" :disabled="!newAgentName.trim()">创建</button>
-            <button class="setting-btn secondary" @click="showAgentCreate = false">取消</button>
-          </div>
-          <button v-else class="agent-add-btn" @click="showAgentCreate = true">+ 新建角色</button>
-
-        </div>
-
         <!-- 系统 -->
         <div v-if="activeCat === 'system'" class="cat-content">
           <h3 class="cat-title">系统</h3>
@@ -200,25 +152,40 @@
           <h3 class="cat-title">关于</h3>
 
           <div class="about-icon">▮</div>
-          <div class="about-app-name">案</div>
-          <div class="about-version">v1.0.0</div>
+          <div class="about-app-name">{{ appName }}</div>
+          <div class="about-version">v{{ appVersion }}</div>
           <p class="about-desc">
             桌面上的智能助手。支持多家 LLM、多角色协作、拖放文件分析、记忆系统。
           </p>
 
-          <div class="about-section">
+          <!-- 更新 -->
+          <div class="about-section update-section" v-if="updateStatus.status">
+            <div class="update-row">
+              <span class="update-status-icon" :class="updateStatus.status">{{ updateIcon }}</span>
+              <span class="update-text">{{ updateStatus.message }}</span>
+            </div>
+            <div class="update-progress" v-if="updateStatus.status === 'downloading'">
+              <div class="update-progress-bar" :style="{ width: (updateStatus.percent || 0) + '%' }"></div>
+              <span class="update-progress-text">{{ updateStatus.percent || 0 }}%</span>
+            </div>
+            <div class="update-actions">
+              <button v-if="updateStatus.status === 'available'" class="setting-btn primary" @click="doUpdateDownload">下载更新</button>
+              <button v-if="updateStatus.status === 'downloaded'" class="setting-btn primary" @click="doUpdateInstall">重启并安装</button>
+              <button v-if="updateStatus.status === 'error'" class="setting-btn secondary" @click="doCheckUpdate">重试</button>
+            </div>
+          </div>
+          <button v-else class="setting-btn secondary" @click="doCheckUpdate" style="margin-top: 12px;">
+            检查更新
+          </button>
+
+          <div class="about-section" style="margin-top: 16px;">
             <div class="about-label">灵感来源</div>
             <a class="about-link" href="https://hermespet.cc" target="_blank">HermesPet</a>
           </div>
 
           <div class="about-section">
             <div class="about-label">技术栈</div>
-            <div class="about-stack">Electron · Vue 3 · Canvas 2D · Python LangChain Agent</div>
-          </div>
-
-          <div class="about-section">
-            <div class="about-label">Agent 引擎</div>
-            <div class="about-stack">ReAct 循环 · 工具调用 · Chroma 长期记忆 · RAG 文档检索</div>
+            <div class="about-stack">Electron · Vue 3 · Canvas 2D</div>
           </div>
 
           <div class="about-section">
@@ -232,12 +199,12 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, computed, onBeforeUnmount } from 'vue'
 
 const emit = defineEmits(['done'])
 
 // 分类
-import { User, Zap, Bot, Settings, Info, Shield, Mic, Music, Puzzle } from 'lucide-vue-next'
+import { User, Zap, Settings, Info, Shield, Mic, Music, Puzzle } from 'lucide-vue-next'
 import PrivacyPanel from './PrivacyPanel.vue'
 import VoiceClonePanel from '../voice/VoiceClonePanel.vue'
 import MusicPanel from '../music/MusicPanel.vue'
@@ -246,7 +213,6 @@ import SkillSettingsPanel from './SkillSettingsPanel.vue'
 const categories = [
   { id: 'profile',     icon: User,     label: '用户',   color: '#6366F1' },
   { id: 'backend',     icon: Zap,      label: '服务商', color: '#3B82F6' },
-  { id: 'pet',         icon: Bot,      label: '助手',   color: '#EC4899' },
   { id: 'voice',       icon: Mic,      label: '音色',   color: '#10B981' },
   { id: 'music',       icon: Music,    label: '音乐',   color: '#EC4141' },
   { id: 'system',      icon: Settings, label: '系统',   color: '#6B7280' },
@@ -373,150 +339,48 @@ watch(userNickname, v => {
   }
 })
 
-// Agent 状态
-const agentReady = ref(false)
-const agentChecking = ref(true)
-const memoryCount = ref(0)
-const indexedCount = ref(0)
-const expertCount = ref(0)
-const activeExpertCount = ref(0)
+// ── 版本 & 更新 ──
+const appName = ref('Solace')
+const appVersion = ref('0.0.0')
+const updateStatus = ref({})
 
-// 检查 Agent 就绪状态
-;(async () => {
+const updateIcon = computed(() => {
+  const map = { checking: '⏳', available: '🆕', 'up-to-date': '✅', downloading: '📥', downloaded: '⚡', error: '❌' }
+  return map[updateStatus.value.status] || ''
+})
+
+async function loadVersion() {
   try {
-    const result = await window.electronAPI?.agentPing()
-    agentReady.value = result?.ready || false
-
-    // 加载角色统计
-    try {
-      const roles = JSON.parse(localStorage.getItem('custom-roles') || '[]')
-      expertCount.value = roles.length
-      activeExpertCount.value = roles.filter(r => r.auto_invoke).length
-    } catch { /* ignore */ }
-    memoryCount.value = result?.memory_count || result?.memoryCount || 0
-    indexedCount.value = result?.indexed_files || result?.indexedFiles || 0
-    if (result?.profile) {
-      userProfile.value = result.profile
+    const result = await window.electronAPI?.updateGetVersion()
+    if (result) {
+      appName.value = result.name || 'SonderPet'
+      appVersion.value = result.version || '0.0.0'
     }
-  } catch { agentReady.value = false }
-  finally { agentChecking.value = false }
-})()
-
-// 模型选项
-const claudeModels = [
-  { value: 'claude-sonnet-4-20250506', label: 'Sonnet 4' },
-  { value: 'claude-opus-4-20250514',   label: 'Opus 4' },
-  { value: 'claude-haiku-4-20250501',  label: 'Haiku 4' },
-]
-const deepseekModels = [
-  { value: 'deepseek-v4-flash', label: '⚡ 极速' },
-  { value: 'deepseek-v4-pro',   label: '🕯️ 深度' },
-]
-
-// 快速风格预设（点击填入行为风格，新建 Agent 时可选）
-const personalityPresets = [
-  { id: 'default', icon: '✦', name: '自然友好',
-    identity: '我是{{name}}，案中的一个智能助手，知识渊博、响应迅速。',
-    ishiki: '用温暖友善的语气说话\n回复简洁自然\n可以适当使用语气词' },
-  { id: 'gentle', icon: '♡', name: '温柔可靠',
-    identity: '我是{{name}}，案中一个温和陪伴的伙伴，善于倾听。',
-    ishiki: '温和包容的语气\n先安慰再建议，永远不说教\n主动关心对方感受\n多用温暖的话语' },
-  { id: 'lively', icon: '✿', name: '活泼小精灵',
-    identity: '我是{{name}}，案中一个元气满满的小帮手！',
-    ishiki: '元气满满\n爱用颜文字和语气词 (✧ω✧)\n说话像蹦蹦跳跳的\n用大量感叹号和拟声词' },
-  { id: 'pro', icon: '◆', name: '专业效率',
-    identity: '我是{{name}}，案中的专业顾问，擅长高效解决问题。',
-    ishiki: '只说有用的\n拒绝废话和寒暄\n直接给方案，先结论后论证\n语言精准干练' },
-  { id: 'cold', icon: '◇', name: '高冷话少',
-    identity: '我是{{name}}，案中的助手。',
-    ishiki: '惜字如金\n能说一个字绝不说两个\n不寒暄不闲聊\n用最少的字表达意思' },
-]
-
-// 角色人格编辑
-const editIdentity = ref('')
-const editIshiki = ref('')
-const saveMsg = ref('')
-const savingPersonality = ref(false)
-
-const defaultIdentity = `我是{{name}}，案中的一个智能助手。我知识渊博、响应迅速，能帮你解决各种问题——日常咨询、技术难题、文件分析、网络搜索，样样都行。说话简洁高效，但也不失温度。`
-const defaultIshiki = `用干练专业的语气说话
-先给结论，再展开解释
-不确定的事情诚实说"让我查一下"
-主动记住用户的偏好和习惯
-中文为主，代码用英文`
-
-function applyPreset(p) {
-  editIshiki.value = p.ishiki
+  } catch {}
 }
 
-async function savePersonality() {
-  savingPersonality.value = true
-  saveMsg.value = ''
-  try {
-    await window.electronAPI?.agentUpdatePersonality(
-      editIdentity.value || defaultIdentity,
-      editIshiki.value || defaultIshiki,
-    )
-    saveMsg.value = '已保存 ✓'
-    setTimeout(() => saveMsg.value = '', 2000)
-  } catch (e) {
-    saveMsg.value = '保存失败: ' + e.message
-  } finally {
-    savingPersonality.value = false
-  }
+async function doCheckUpdate() {
+  updateStatus.value = { status: 'checking', message: '正在检查更新…' }
+  await window.electronAPI?.updateCheck()
 }
 
-// Agent 管理
-const agentList = ref([])
-const showAgentCreate = ref(false)
-const newAgentName = ref('')
-const newAgentPreset = ref('')
-
-async function loadAgents() {
-  try {
-    const result = await window.electronAPI?.agentList()
-    agentList.value = result?.data?.agents || result?.agents || []
-  } catch { agentList.value = [] }
-}
-async function createAgent() {
-  if (!newAgentName.value.trim()) return
-  try {
-    // Build identity/ishiki from preset
-    let identity = ''
-    let ishiki = ''
-    if (newAgentPreset.value) {
-      const preset = personalityPresets.find(p => p.id === newAgentPreset.value)
-      if (preset) {
-        identity = preset.identity || ''
-        ishiki = preset.ishiki || ''
-      }
-    }
-    await window.electronAPI?.agentCreateWithPersonality(
-      newAgentName.value.trim(),
-      identity,
-      ishiki,
-    )
-    newAgentName.value = ''
-    newAgentPreset.value = ''
-    showAgentCreate.value = false
-    await loadAgents()
-  } catch (e) { console.error(e) }
-}
-async function switchAgent(id) {
-  try {
-    await window.electronAPI?.agentSwitch(id)
-    localStorage.setItem('active-agent-id', id)
-    await loadAgents()
-  } catch (e) { console.error(e) }
-}
-async function deleteAgent(id) {
-  if (!confirm('确定删除这个角色？')) return
-  try {
-    await window.electronAPI?.agentDelete(id)
-    await loadAgents()
-  } catch (e) { console.error(e) }
+async function doUpdateDownload() {
+  await window.electronAPI?.updateDownload()
 }
 
+async function doUpdateInstall() {
+  await window.electronAPI?.updateInstall()
+}
+
+// 监听更新状态
+let _unsubUpdate = null
+function _listenUpdate() {
+  _unsubUpdate = window.electronAPI?.onUpdateStatus?.((data) => {
+    updateStatus.value = { ...updateStatus.value, ...data }
+  })
+}
+
+// ── 主题 ──
 const appTheme = ref(localStorage.getItem('app-theme') || 'system')
 const themes = [
   { label: '浅色', value: 'light', icon: '☀️' },
@@ -542,6 +406,14 @@ applyTheme(appTheme.value)
 // 监听系统主题变化
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
   if (appTheme.value === 'system') applyTheme('system')
+})
+
+// 加载版本号并监听更新事件
+loadVersion()
+_listenUpdate()
+
+onBeforeUnmount(() => {
+  _unsubUpdate?.()
 })
 
 async function save() {
@@ -634,7 +506,6 @@ async function testConn() {
   }
 }
 
-onMounted(() => { loadAgents() })
 </script>
 
 <style scoped>
@@ -1027,20 +898,6 @@ input:focus, select:focus, textarea:focus, .setting-input:focus {
 .role-stats { display: flex; gap: 20px; align-items: center; }
 .role-stat { font-size: 13.5px; color: var(--text-primary); }
 
-/* Agent */
-.agent-status { display: flex; flex-direction: column; gap: 10px; padding: 14px; background: var(--bg-sidebar); border: 1px solid var(--border); border-radius: 10px; }
-.agent-status-header { display: flex; align-items: center; gap: 10px; }
-.agent-status-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--border-strong); box-shadow: 0 0 0 3px transparent; transition: all 0.3s; }
-.agent-status-dot.online { background: var(--success); box-shadow: 0 0 0 3px rgba(52,199,89,0.15); }
-.agent-status-label { font-size: 13.5px; font-weight: 600; color: var(--text-primary); }
-.agent-status-text { font-size: 11.5px; color: var(--text-secondary); margin-left: auto; }
-.agent-status-text.offline { color: var(--text-muted); }
-.agent-stats { display: flex; gap: 20px; font-size: 12.5px; color: var(--text-secondary); }
-.agent-actions { display: flex; gap: 8px; }
-.agent-action-btn { padding: 6px 16px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-card); cursor: pointer; font-size: 12.5px; font-family: inherit; color: var(--text-secondary); transition: all 0.18s cubic-bezier(.16,1,.3,1); }
-.agent-action-btn:hover { background: var(--bg-sidebar-hover); color: var(--text-primary); transform: translateY(-1px); }
-.agent-action-btn:hover { border-color: var(--danger); color: var(--danger); }
-
 /* About */
 .about-icon { font-size: 48px; text-align: center; margin-top: 16px; }
 .about-app-name { font-size: 20px; font-weight: 700; text-align: center; color: var(--text-primary); margin-top: 8px; }
@@ -1052,6 +909,28 @@ input:focus, select:focus, textarea:focus, .setting-input:focus {
 .about-link:hover { color: var(--accent); }
 .about-stack { font-size: 12px; color: var(--text-primary); }
 .about-path { font-size: 11px; background: var(--bg-sidebar); padding: 2px 8px; border-radius: 6px; font-family: monospace; color: var(--text-primary); }
+
+/* Update */
+.update-section {
+  flex-direction: column; align-items: stretch; gap: 10px;
+  margin-top: 12px; padding: 14px;
+  background: var(--bg-card); border: 1px solid var(--border);
+}
+.update-row { display: flex; align-items: center; gap: 10px; }
+.update-status-icon { font-size: 18px; flex-shrink: 0; }
+.update-text { font-size: 13px; color: var(--text-primary); flex: 1; }
+.update-actions { display: flex; gap: 8px; }
+.update-progress {
+  height: 6px; background: var(--bg-sidebar); border-radius: 3px;
+  overflow: hidden; position: relative;
+}
+.update-progress-bar {
+  height: 100%; background: var(--accent);
+  border-radius: 3px; transition: width 0.3s;
+}
+.update-progress-text {
+  font-size: 11px; color: var(--text-muted); text-align: center; display: block; margin-top: 2px;
+}
 
 /* Profile hero */
 .profile-hero {
@@ -1089,59 +968,6 @@ input:focus, select:focus, textarea:focus, .setting-input:focus {
   box-shadow: 0 2px 8px rgba(109,124,255,0.1);
 }
 
-/* Agent 列表 */
-.agent-list { display: flex; flex-direction: column; gap: 6px; }
-.agent-row {
-  display: flex; align-items: center; gap: 12px;
-  padding: 12px 14px; border-radius: 10px;
-  border: 1px solid var(--border); background: var(--bg-card);
-  transition: all 0.2s;
-}
-.agent-row:hover { border-color: var(--border-strong); background: var(--bg-sidebar-hover); }
-.agent-row.active { border-color: var(--accent); background: var(--accent-soft); }
-.agent-row-icon { font-size: 20px; flex-shrink: 0; }
-.agent-row-info { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.agent-row-name { font-size: 13.5px; font-weight: 600; color: var(--text-primary); }
-.agent-row-meta { font-size: 11.5px; color: var(--text-muted); }
-.agent-row-badge {
-  display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px;
-  background: var(--accent-soft); color: var(--accent); font-weight: 600;
-  margin-left: 6px; vertical-align: middle;
-}
-.agent-row-btn {
-  padding: 6px 16px; border-radius: 8px; border: 1.5px solid var(--accent);
-  background: var(--accent-soft); color: var(--accent);
-  cursor: pointer; font-size: 12px; font-weight: 600; font-family: inherit;
-  transition: all 0.2s cubic-bezier(.16,1,.3,1);
-}
-.agent-row-btn:hover {
-  background: var(--accent); color: #fff;
-  box-shadow: 0 2px 8px rgba(109,124,255,0.2);
-}
-.agent-row-del {
-  width: 28px; height: 28px; border-radius: 8px; border: 1.5px solid var(--border);
-  background: var(--bg-card); cursor: pointer; font-size: 13px;
-  display: flex; align-items: center; justify-content: center;
-  color: var(--text-muted); transition: all 0.2s;
-}
-.agent-row-del:hover { border-color: var(--danger); color: var(--danger); background: rgba(239,68,68,0.06); }
-.agent-add-btn {
-  padding: 10px; border-radius: 10px; border: 1.5px dashed var(--border);
-  background: none; cursor: pointer; font-size: 13px; font-family: inherit;
-  color: var(--text-muted); font-weight: 500;
-  transition: all 0.2s cubic-bezier(.16,1,.3,1);
-}
-.agent-add-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
-.agent-create {
-  display: flex; gap: 8px; align-items: center;
-}
-
-/* Save 消息 */
-.save-msg {
-  font-size: 12.5px; color: var(--success); font-weight: 500;
-  margin-left: 10px; animation: fadeIn .3s;
-}
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
 /* Utility */
 .setting-error { font-size: 12px; color: var(--danger); margin: 4px 0; }

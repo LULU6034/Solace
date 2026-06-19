@@ -363,4 +363,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('voice-event', listener)
     return () => ipcRenderer.removeListener('voice-event', listener)
   },
+
+  // ── 自动更新 ──
+  updateCheck: () => ipcRenderer.invoke('update:check'),
+  updateDownload: () => ipcRenderer.invoke('update:download'),
+  updateInstall: () => ipcRenderer.invoke('update:install'),
+  updateGetVersion: () => ipcRenderer.invoke('update:get-version'),
+  onUpdateStatus: (cb) => {
+    const listener = (_event, data) => cb(data)
+    ipcRenderer.on('update:status', listener)
+    return () => ipcRenderer.removeListener('update:status', listener)
+  },
 });

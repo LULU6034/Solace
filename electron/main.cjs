@@ -1,6 +1,7 @@
 ﻿const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { setupUpdater } = require('./updater.cjs');
 
 const isDev = process.env.ELECTRON_IS_DEV === 'true' || !app.isPackaged;
 
@@ -22,6 +23,7 @@ function createChatWindow() {
     return;
   }
 
+  const iconPath = path.join(__dirname, '../public/icon.png');
   chatWindow = new BrowserWindow({
     width: 1100,
     height: 750,
@@ -29,6 +31,7 @@ function createChatWindow() {
     minHeight: 420,
     frame: false,
     show: false,
+    icon: fs.existsSync(iconPath) ? iconPath : undefined,
     backgroundColor: '#0f0f1a',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -54,6 +57,11 @@ function createChatWindow() {
     chatWindow.loadURL(`http://localhost:${port}/`);
   } else {
     chatWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+  }
+
+  // 仅在打包后启用自动更新（开发环境跳过）
+  if (!isDev) {
+    setupUpdater(chatWindow);
   }
 
   chatWindow.once('ready-to-show', () => {
@@ -86,7 +94,10 @@ function createChatWindow() {
 }
 
 function createTray() {
-  const icon = nativeImage.createFromBuffer(Buffer.alloc(32*32*4));
+  const iconPath = path.join(__dirname, '../public/tray-icon.png');
+  const icon = fs.existsSync(iconPath)
+    ? nativeImage.createFromPath(iconPath)
+    : nativeImage.createFromBuffer(Buffer.alloc(32*32*4));
   tray = new Tray(icon);
   tray.setToolTip('静屿');
 
@@ -206,7 +217,7 @@ ipcMain.handle('load-config', () => {
 });
 ipcMain.handle('save-config', (_event, config) => {
   // 白名单过滤：只保存已知的安全字段，防止前端注入恶意配置
-  const ALLOWED_KEYS = ['provider', 'apiKey', 'visionApiKey', 'dashscopeApiKey', 'minimaxApiKey', 'model', 'baseUrl', 'deepseekApiKey'];
+  const ALLOWED_KEYS = ['provider', 'apiKey', 'visionApiKey', 'dashscopeApiKey', 'minimaxApiKey', 'model', 'baseUrl', 'deepseekApiKey', 'deepgramApiKey', 'hotwords'];
   const sanitized = {};
   for (const key of ALLOWED_KEYS) {
     if (config[key] !== undefined) sanitized[key] = config[key];

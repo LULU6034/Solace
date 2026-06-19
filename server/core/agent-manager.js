@@ -489,3 +489,8 @@ export class AgentManager {
     return DEFAULT_ISHIKI;
   }
 }
+
+// 模块级单例，供其他模块获取已初始化的 AgentManager
+let _agentManagerInstance = null;
+export function setAgentManager(instance) { _agentManagerInstance = instance; }
+export function getAgentManager() { return _agentManagerInstance; }

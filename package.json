@@ -70,8 +70,12 @@
       "skills-builtin/**/*",
       "data/**/*",
       "public/**/*",
+      "node_modules/electron-updater/**/*",
+      "node_modules/builder-util-runtime/**/*",
+      "node_modules/lazy-val/**/*",
       "!node_modules/**/*"
     ],
+    "asar": false,
     "win": {
       "target": "nsis",
       "icon": "public/icon.png"

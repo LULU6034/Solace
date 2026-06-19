@@ -42,7 +42,13 @@ data/
 .env
 
 # AI models + source (large files)
+public/models/
 scripts/models/
 scripts/cosyvoice-src/
 scripts/checkpoints/
+
+# Debug artifacts
+debug-pcm/
+test-pcm.pcm
+*.pcm
 

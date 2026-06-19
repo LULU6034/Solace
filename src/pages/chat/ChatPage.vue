@@ -1,34 +1,40 @@
 <template>
   <div class="main-area">
-    <div class="header-bar">
-      <div class="conversation-pills">
-        <TransitionGroup @before-enter="onTabBeforeEnter" @enter="onTabEnter" @leave="onTabLeave">
-          <div v-for="(c, i) in viewConvs" :key="c.id" class="pill-wrap"
-            @contextmenu.prevent="ctxMenu = { idx: i, x: $event.clientX, y: $event.clientY }">
-            <button class="conv-pill" :class="{ active: i === viewIdx }" @click="switchConv(i)">
-              <span class="pill-label">{{ c.title }}</span>
-              <span v-if="viewConvs.length > 1" class="pill-close" @click.stop="closeConv(i)" title="关闭对话">
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                  <path d="M1 1l8 8M9 1l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-                </svg>
-              </span>
-            </button>
-          </div>
-        </TransitionGroup>
+    <!-- 历史侧边栏 -->
+    <aside class="history-sidebar" :class="{ open: showHistory }">
+      <div class="history-header">
+        <span>对话历史</span>
+        <button class="history-close-btn" @click="showHistory=false" title="关闭">
+          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 2l10 10M12 2l-10 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
       </div>
+      <div class="history-list">
+        <div v-if="sessions.length===0" class="history-empty">暂无历史对话</div>
+        <div v-for="(s,i) in sessions" :key="s.id" class="history-item" :class="{ active: s.id===activeSessionId }" @click="loadSession(i)">
+          <div class="history-item-title">{{ s.title }}</div>
+          <div class="history-item-meta">
+            <span>{{ s.date }}</span>
+            <span>{{ s.count }} 条</span>
+          </div>
+          <button class="history-del-btn" @click.stop="deleteSession(i)" title="删除">
+            <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+    <!-- 主内容 -->
+    <div class="main-content">
+    <div class="header-bar">
       <div class="tab-actions">
+        <button class="history-toggle-btn" :class="{ active: showHistory }" title="对话历史" @click.stop="showHistory=!showHistory">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </button>
         <button class="add-btn" title="新建对话" @click.stop="addNewConv">
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
             <path d="M9 3v12M3 9h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
           </svg>
         </button>
       </div>
-    </div>
-
-    <div v-if="ctxMenu" class="ctx-menu" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
-      @click="ctxMenu = null" @mouseleave="ctxMenu = null">
-      <button class="ctx-menu-item" @click="renameConv(ctxMenu.idx)">重命名</button>
-      <button v-if="viewConvs.length > 1" class="ctx-menu-item danger" @click.stop="closeConv(ctxMenu.idx)">关闭对话</button>
     </div>
 
     <div v-if="renaming !== null" class="rename-overlay" @click="renaming = null">
@@ -146,9 +152,8 @@
         </div>
       </div>
       <div class="input-box">
-        <div class="voice-input-wrap" :class="{ recording: isRecording }">
-          <div v-if="isRecording" class="voice-ripple"></div>
-          <textarea ref="ta" v-model="text" placeholder="Ctrl+空格 语音输入" @keydown="onKeydown" @paste="onPaste" rows="1"/>
+        <div class="voice-input-wrap">
+          <textarea ref="ta" v-model="text" placeholder="输入消息…" @keydown="onKeydown" @paste="onPaste" rows="1"/>
         </div>
         <button v-if="sendState==='idle'" class="send-btn-inline" :disabled="!text.trim() && pendingImages.length===0" @click="handleSend" title="发送"><ArrowUp :size="16"/></button>
         <button v-else-if="sendState==='loading'" class="send-btn-inline loading" title="发送中..."><span class="btn-spinner"/></button>
@@ -157,7 +162,8 @@
       </div>
     </div>
 
-  </div>
+    </div><!-- /main-content -->
+  </div><!-- /main-area -->
 </template>
 
 <script setup>
@@ -194,9 +200,11 @@ const EFFORT_OPTIONS=[
 const effortLabel=computed(()=>EFFORT_OPTIONS.find(o=>o.value===reasoningEffort.value)?.label||'自动')
 const elapsedTime=ref(0); let elapsedTimer=null
 const renaming=ref(null),renameText=ref(''),renameInput=ref(null)
+const showHistory=ref(false),activeSessionId=ref(null)
+const sessions=ref((()=>{try{return JSON.parse(localStorage.getItem('chat-sessions')||'[]')}catch{return[]}})())
 const ta=ref(null),msgEnd=ref(null),msgArea=ref(null)
 const activeAgentId=ref(localStorage.getItem('active-agent-id')||'')
-const convs=ref([{id:1,title:'对话',agentId:activeAgentId.value,provider:localStorage.getItem('llm-provider')||'deepseek',messages:[],history:[],mode:'chat'}])
+const convs=ref([{id:Date.now(),title:'对话',agentId:activeAgentId.value,provider:localStorage.getItem('llm-provider')||'deepseek',messages:[],history:[],mode:'chat'}])
 const viewConvs=computed(()=>convs.value.filter(c=>(c.mode||'chat')==='chat'&&(!activeAgentId.value||!c.agentId||c.agentId===activeAgentId.value)))
 const viewIdx=ref(0); const conv=computed(()=>viewConvs.value[viewIdx.value]||convs.value[0])
 const char=computed(()=>CHARS[conv.value.provider]||CHARS.deepseek)
@@ -217,18 +225,98 @@ function scrollDown(){if(userAtBottom&&msgEnd.value)msgEnd.value.scrollIntoView(
 function isStreamingMsg(m,i){return i===conv.value.messages.length-1&&loading.value&&m.role==='assistant'}
 function renderMarkdown(t){if(!t)return'';try{return marked.parse(t)}catch{return t}}
 function fmtTime(ts){const d=new Date(ts);return d.toDateString()===new Date().toDateString()?d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):d.toLocaleDateString([],{month:'short',day:'numeric'})+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}
-function getNextId(){return Math.max(1,...convs.value.map(c=>c.id))+1}
+function getNextId(){let max=0;for(const c of convs.value){if(c.id>max)max=c.id};return Math.max(Date.now(),max+1)}
 function fmtApprovalInput(i){if(!i)return'';if(typeof i==='string')return i;try{return JSON.stringify(i,null,2)}catch{return String(i)}}
 
 // ── Convs ──
-function newConv(p){if(convs.value.length>=8)return;const t=convs.value.filter(c=>c.mode==='chat').length===0?'对话':`对话 ${getNextId()}`;convs.value.push({id:getNextId(),title:t,agentId:activeAgentId.value,provider:p||'deepseek',messages:[],history:[],mode:'chat'})}
-let _la=0; function addNewConv(){if(Date.now()-_la<300)return;_la=Date.now();newConv(localStorage.getItem('llm-provider')||'deepseek')}
+function newConv(p){const id=Date.now();convs.value=[{id,title:'对话',agentId:activeAgentId.value,provider:p||'deepseek',messages:[],history:[],mode:'chat'}];viewIdx.value=0;activeSessionId.value=null}
+let _la=0; function addNewConv(){if(Date.now()-_la<300)return;_la=Date.now();saveAllSessions();newConv(localStorage.getItem('llm-provider')||'deepseek')}
 function switchConv(i){if(i!==viewIdx.value)viewIdx.value=i}
 let _lc=0; function closeConv(i){if(Date.now()-_lc<300)return;_lc=Date.now();const vc=viewConvs.value;if(vc.length<=1)return;const r=vc[i],gi=convs.value.findIndex(c=>c.id===r.id);convs.value.splice(gi,1);const nv=viewConvs.value;if(viewIdx.value>=nv.length)viewIdx.value=nv.length-1;ctxMenu.value=null}
 function clearConv(){const c=conv.value;c.messages=[];c.history=[];c.title='对话 '+c.id}
 function renameConv(i){ctxMenu.value=null;renaming.value=i;renameText.value=viewConvs.value[i].title;nextTick(()=>renameInput.value?.focus())}
 function doRename(){const t=renameText.value.trim();if(t&&renaming.value!==null){const vc=viewConvs.value;if(vc[renaming.value])vc[renaming.value].title=t}renaming.value=null}
 function copyMsg(c){navigator.clipboard.writeText(c).then(()=>{for(const m of conv.value.messages){if(m.content===c){m._copied=true;setTimeout(()=>{m._copied=false},1800);break}}}).catch(()=>{})}
+
+// ── 对话历史持久化 ──
+function _cleanMessages(msgs) {
+  return (msgs || []).slice(-100).map(m => ({ role: m.role, content: m.content || '', images: m.images?.length ? m.images.slice() : undefined }))
+}
+function _sessionEntry(c) {
+  const userMsgs = c.messages.filter(m => m.role === 'user')
+  const title = userMsgs.length ? userMsgs[0].content.slice(0, 40) : (c.title || '对话')
+  return { id: c.id, title, updatedAt: Date.now(), count: c.messages.length, provider: c.provider, messages: _cleanMessages(c.messages), agentId: c.agentId, mode: c.mode || 'chat' }
+}
+function saveAllSessions() {
+  // 保存所有有消息的对话
+  const now = Date.now()
+  const list = sessions.value.slice()
+  for (const c of convs.value) {
+    if (!c.messages.length) continue
+    const entry = _sessionEntry(c)
+    const idx = list.findIndex(s => s.id === c.id)
+    if (idx >= 0) {
+      entry.date = list[idx].date || entry.date  // 保留原始创建日期
+      list[idx] = entry
+    } else {
+      const now = new Date()
+      entry.date = now.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }) + ' ' + now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      list.unshift(entry)
+    }
+  }
+  // 去重 + 排序 + 限20
+  const seen = new Set()
+  const unique = []
+  for (const s of list) {
+    if (!seen.has(s.id)) { seen.add(s.id); unique.push(s) }
+  }
+  unique.sort((a, b) => (b.updatedAt||b.id) - (a.updatedAt||a.id))
+  if (unique.length > 20) unique.length = 20
+  sessions.value = unique
+  try { localStorage.setItem('chat-sessions', JSON.stringify(unique)) } catch(e) {}
+}
+function loadSession(i) {
+  const s = sessions.value[i]; if (!s || !s.messages?.length) return
+  saveAllSessions()
+  // 查找是否已打开（按 id 精确匹配）
+  let vi = viewConvs.value.findIndex(c => c.id === s.id)
+  if (vi >= 0) {
+    viewIdx.value = vi; showHistory.value = false; activeSessionId.value = s.id; nextTick(scrollDown); return
+  }
+  // 替换当前空对话，或新增标签
+  const cur = conv.value
+  if (cur && !cur.messages.length) {
+    // 当前标签是空的 → 直接替换
+    const ci = convs.value.findIndex(c => c.id === cur.id)
+    if (ci >= 0) {
+      convs.value[ci] = { id: s.id, title: s.title, agentId: activeAgentId.value, provider: s.provider || 'deepseek', messages: s.messages, history: [], mode: 'chat' }
+      vi = viewConvs.value.findIndex(c => c.id === s.id)
+      if (vi >= 0) { viewIdx.value = vi; showHistory.value = false; activeSessionId.value = s.id; nextTick(scrollDown); return }
+    }
+  }
+  // 新增标签
+  if (convs.value.length >= 8) convs.value.shift()
+  convs.value.push({ id: s.id, title: s.title, agentId: activeAgentId.value, provider: s.provider || 'deepseek', messages: s.messages, history: [], mode: 'chat' })
+  viewIdx.value = viewConvs.value.length - 1
+  activeSessionId.value = s.id
+  showHistory.value = false
+  nextTick(scrollDown)
+}
+function deleteSession(i) {
+  const s = sessions.value[i]; if (!s) return
+  sessions.value.splice(i, 1)
+  // 同时从打开标签中移除
+  const ci = convs.value.findIndex(c => c.id === s.id)
+  if (ci >= 0 && convs.value.length > 1) convs.value.splice(ci, 1)
+  if (activeSessionId.value === s.id) activeSessionId.value = null
+  try { localStorage.setItem('chat-sessions', JSON.stringify(sessions.value)) } catch(e) {}
+}
+let _saveTimeout = null
+watch(() => convs.value.map(c => c.messages.length + '|' + (c.messages[c.messages.length-1]?.content||'').slice(0,10)).join(','), () => {
+  clearTimeout(_saveTimeout)
+  _saveTimeout = setTimeout(saveAllSessions, 2000)
+})
+
 
 // ── Timer ──
 function startTimer(){elapsedTime.value=0;elapsedTimer=setInterval(()=>{elapsedTime.value++},1000)}
@@ -355,14 +443,6 @@ function stripAndSaveMusicList(text) {
   return text.replace(/MUSIC_?LIST[\s\S]*$/i, '').trim();
 }
 
-// ── Ctrl+空格 语音输入 (本地 Whisper 识别) ──
-const isRecording=ref(false)
-let audioCtx=null,streamNode=null,scriptNode=null,pcmChunks=[],sampleRate=16000
-function encodeWAV(samples,sr){ const bits=16,bytes=bits/8; const len=samples.length*bytes; const buf=new ArrayBuffer(44+len),v=new DataView(buf); function w(s,o,l){ for(let i=0;i<l;i++)v.setUint8(o+i,s.charCodeAt(i)) } w('RIFF',0,4); v.setUint32(4,36+len,true); w('WAVE',8,4); w('fmt ',12,4); v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true); v.setUint32(24,sr,true); v.setUint32(28,sr*bytes,true); v.setUint16(32,bytes,true); v.setUint16(34,bits,true); w('data',36,4); v.setUint32(40,len,true); let off=44; for(let i=0;i<samples.length;i++){ const s=Math.max(-1,Math.min(1,samples[i])); v.setInt16(off,s<0?s*0x8000:s*0x7FFF,true); off+=2 } return buf }
-function playRecordSound(){ try{ const a=new AudioContext(); const o=a.createOscillator(); const g=a.createGain(); o.connect(g); g.connect(a.destination); o.frequency.value=800; g.gain.value=0.08; o.start(); g.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.2); o.stop(a.currentTime+0.2) }catch{} }
-async function startRecording(){ if(isRecording.value||loading.value)return; try{ const stream=await navigator.mediaDevices.getUserMedia({audio:{sampleRate,channelCount:1,echoCancellation:true,noiseSuppression:true}}); playRecordSound(); isRecording.value=true; pcmChunks=[]; audioCtx=new AudioContext({sampleRate}); streamNode=audioCtx.createMediaStreamSource(stream); scriptNode=audioCtx.createScriptProcessor(4096,1,1); scriptNode.onaudioprocess=e=>{ if(!isRecording.value)return; pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0))) }; streamNode.connect(scriptNode); scriptNode.connect(audioCtx.destination) }catch(e){ text.value='[麦:'+(e.message||e.name||'?')+']'; isRecording.value=false } }
-async function stopRecording(){ if(!isRecording.value)return; isRecording.value=false; if(scriptNode){ scriptNode.disconnect(); scriptNode=null } if(streamNode){ streamNode.disconnect(); streamNode=null } if(audioCtx){ audioCtx.close(); audioCtx=null } await new Promise(r=>setTimeout(r,200)); if(!pcmChunks.length){ text.value='[无音频]'; return } const all=new Float32Array(pcmChunks.reduce((s,c)=>s+c.length,0)); let off=0; for(const c of pcmChunks){ all.set(c,off); off+=c.length } pcmChunks=[]; const wav=encodeWAV(all,sampleRate); const bytes=new Uint8Array(wav); let b64=''; for(let i=0;i<bytes.length;i+=4096)b64+=String.fromCharCode(...bytes.slice(i,i+4096)); b64=btoa(b64); const result=await window.electronAPI?.voiceSTT(b64); if(result?.error){ text.value='[STT:'+result.error+']' } else if(result?.text){ text.value=text.value?text.value+' '+result.text:result.text } else { text.value='[未识别]' } }
-function onVoiceEvent(type){ if(type==='keyDown'&&!isRecording.value){ startRecording() }else if(type==='keyUp'){ stopRecording() } }
 function onKeydown(e){ if(loading.value)return; if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();clearConv();return}if((e.metaKey||e.ctrlKey||e.shiftKey)&&e.key==='Enter')return;if(e.key==='Enter'){e.preventDefault();handleSend()}}
 function onPaste(e){const items=e.clipboardData?.items;if(!items)return;for(const item of items){if(item.type.startsWith('image/')){e.preventDefault();const f=item.getAsFile();if(!f)continue;const r=new FileReader();r.onload=ev=>pendingImages.value.push({data:ev.target.result,file:f});r.readAsDataURL(f)}}}
 
@@ -415,7 +495,6 @@ watch(loading,v=>window.electronAPI?.notifyWorking(v))
 
 // ── Lifecycle ──
 let removeFileFed=null,agentPoll=null,unwatchRename=null,unwatchApproval=null
-let unvoiceToggle=null
-onMounted(async()=>{try{const r=await window.electronAPI?.agentList();allAgents.value=r?.data?.agents||r?.agents||[]}catch{allAgents.value=[]};removeFileFed=window.electronAPI?.onFileFed?.(d=>feedFile(d));unvoiceToggle=window.electronAPI?.onVoiceEvent?.(onVoiceEvent);agentPoll=setInterval(()=>{const s=localStorage.getItem('active-agent-id');if(s&&s!==activeAgentId.value)activeAgentId.value=s},2000);nextTick(()=>{setupScrollObserver();animateWelcome()});unwatchRename=watch(renaming,v=>{if(v!==null)nextTick(()=>animateDialog('.rename-dialog'))});unwatchApproval=watch(pendingApproval,v=>{if(v)nextTick(()=>animateDialog('.approval-dialog'))});})
-onUnmounted(()=>{removeFileFed?.();unvoiceToggle?.();stopRecording();if(agentPoll)clearInterval(agentPoll);if(elapsedTimer)clearInterval(elapsedTimer);if(scrollObserver)scrollObserver.disconnect();if(activeAbortController){activeAbortController.abort();activeAbortController=null};unwatchRename?.();unwatchApproval?.()})
+onMounted(async()=>{try{const r=await window.electronAPI?.agentList();allAgents.value=r?.data?.agents||r?.agents||[]}catch{allAgents.value=[]};removeFileFed=window.electronAPI?.onFileFed?.(d=>feedFile(d));agentPoll=setInterval(()=>{const s=localStorage.getItem('active-agent-id');if(s&&s!==activeAgentId.value)activeAgentId.value=s},2000);window.addEventListener('beforeunload', saveAllSessions);nextTick(()=>{setupScrollObserver();animateWelcome()});unwatchRename=watch(renaming,v=>{if(v!==null)nextTick(()=>animateDialog('.rename-dialog'))});unwatchApproval=watch(pendingApproval,v=>{if(v)nextTick(()=>animateDialog('.approval-dialog'))});})
+onUnmounted(()=>{clearTimeout(_saveTimeout);saveAllSessions();removeFileFed?.();if(agentPoll)clearInterval(agentPoll);if(elapsedTimer)clearInterval(elapsedTimer);if(scrollObserver)scrollObserver.disconnect();if(activeAbortController){activeAbortController.abort();activeAbortController=null};unwatchRename?.();unwatchApproval?.()})
 </script>

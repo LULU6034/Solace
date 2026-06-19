@@ -355,15 +355,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   skillEnable: (name, enabled) => ipcRenderer.invoke('skill-enable', { name, enabled }),
   skillInstall: (source) => ipcRenderer.invoke('skill-install', { source }),
   skillUninstall: (name) => ipcRenderer.invoke('skill-uninstall', { name }),
-  // 语音转文字
-  voiceSTT: (audioB64) => ipcRenderer.invoke('voice-stt', { audio: audioB64 }),
-  // 按住说话快捷键 (keyDown/keyUp 事件)
-  onVoiceEvent: (cb) => {
-    const listener = (_event, type) => cb(type)
-    ipcRenderer.on('voice-event', listener)
-    return () => ipcRenderer.removeListener('voice-event', listener)
-  },
-
   // ── 自动更新 ──
   updateCheck: () => ipcRenderer.invoke('update:check'),
   updateDownload: () => ipcRenderer.invoke('update:download'),

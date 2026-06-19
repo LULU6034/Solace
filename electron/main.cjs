@@ -245,44 +245,6 @@ ipcMain.handle('pick-avatar', async () => {
 // 工作状态通知（任务栏/托盘图标动画等，目前 no-op）
 ipcMain.handle('notify-working', () => {})
 
-// ── 语音转文字 (本地 Whisper 模型, 主进程运行) ──
-let _sttPipeline = null, _openccConverter = null
-async function getSTTPipeline() {
-  if (_sttPipeline) return _sttPipeline
-  const { pipeline, env } = require('@xenova/transformers')
-  env.cacheDir = path.join(__dirname, '..', 'public', 'models')
-  env.allowRemoteModels = false
-  env.allowLocalModels = true
-  _sttPipeline = await pipeline('automatic-speech-recognition', 'Xenova/whisper-small', { quantized: true, device: 'cpu' })
-  return _sttPipeline
-}
-async function toSimplified(text) {
-  if (!_openccConverter) {
-    const OpenCC = require('opencc-js')
-    _openccConverter = OpenCC.Converter({ from: 'tw', to: 'cn' })
-  }
-  return _openccConverter(text)
-}
-
-ipcMain.handle('voice-stt', async (_event, params) => {
-  const audioB64 = (params?.audio) || params || ''
-  if (!audioB64) return { text: '' }
-  try {
-    const pipe = await getSTTPipeline()
-    const audioBuf = Buffer.from(audioB64, 'base64')
-    const int16 = new Int16Array(audioBuf.buffer, audioBuf.byteOffset + 44, (audioBuf.length - 44) / 2)
-    const float32 = new Float32Array(int16.length)
-    for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768
-    const result = await pipe(float32, { language: 'zh', task: 'transcribe', chunk_length_s: 30 })
-    let text = result?.text || ''
-    if (text) text = await toSimplified(text)
-    return { text }
-  } catch (e) {
-    console.error('[voice-stt]', e.message)
-    return { error: e.message, text: '' }
-  }
-})
-
 app.whenReady().then(() => {
   // 加载配置，初始化语音 TTS 服务
   const cfg = loadConfigFile();
@@ -293,12 +255,6 @@ app.whenReady().then(() => {
   createChatWindow();
   createTray();
 
-  // ── Ctrl+Space 语音输入 (before-input-event 支持 keydown/keyup) ──
-  chatWindow.webContents.on('before-input-event', (_event, input) => {
-    if (input.control && (input.key === ' ' || input.code === 'Space')) {
-      chatWindow.webContents.send('voice-event', input.type); // 'keyDown' | 'keyUp'
-    }
-  });
 });
 
 app.on('will-quit', () => {

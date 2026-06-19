@@ -52,3 +52,4 @@ debug-pcm/
 test-pcm.pcm
 *.pcm
 
+release/

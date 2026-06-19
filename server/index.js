@@ -1753,7 +1753,12 @@ async function initHub() {
   const agentsDir = path.join(getPersistDir(), 'agents');
   fs.mkdirSync(agentsDir, { recursive: true });
 
-  const { AgentManager: AM, setAgentManager } = await import('./core/agent-manager.js');
+  const agentModule = await import('./core/agent-manager.js');
+  const { AgentManager: AM, setAgentManager } = agentModule;
+  if (typeof setAgentManager !== 'function') {
+    log.error(`agent-manager 导出异常: keys=${Object.keys(agentModule).join(',')}, setAgentManager类型=${typeof setAgentManager}`);
+    throw new Error(`setAgentManager 不是函数，类型为 ${typeof setAgentManager}`);
+  }
   _AgentManager = new AM({
     agentsDir,
     memoryStore: await getMemoryStore(),

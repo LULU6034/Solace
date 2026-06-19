@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "electron:dev": "cross-env ELECTRON_IS_DEV=true electron .",
     "electron:build": "vite build && node scripts/gen-icons.cjs && electron-builder",
+    "electron:release": "vite build && node scripts/gen-icons.cjs && electron-builder --publish always",
     "gen-icons": "node scripts/gen-icons.cjs",
     "postinstall": "patch-package"
   },

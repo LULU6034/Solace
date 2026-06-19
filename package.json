@@ -1,7 +1,7 @@
 {
   "name": "solace",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "scripts": {
     "dev": "concurrently \"vite --port ${VITE_PORT:-5173}\" \"wait-on http://localhost:${VITE_PORT:-5173} && cross-env ELECTRON_IS_DEV=true VITE_PORT=${VITE_PORT:-5173} electron .\"",
@@ -70,12 +70,18 @@
       "skills-builtin/**/*",
       "data/**/*",
       "public/**/*",
-      "node_modules/electron-updater/**/*",
-      "node_modules/builder-util-runtime/**/*",
-      "node_modules/lazy-val/**/*",
-      "!node_modules/**/*"
+      "!node_modules",
+      "node_modules/electron-updater",
+      "node_modules/builder-util-runtime",
+      "node_modules/lazy-val"
     ],
-    "asar": false,
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/sharp/**/*",
+      "node_modules/@xenova/**/*",
+      "node_modules/canvas/**/*",
+      "node_modules/sql.js/**/*"
+    ],
     "win": {
       "target": "nsis",
       "icon": "public/icon.png"

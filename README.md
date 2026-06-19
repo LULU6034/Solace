@@ -1,179 +1,287 @@
 # Solace
 
-桌面上的 AI 伙伴。全双工语音对话、多角色协作、记忆系统、音乐播放、文件分析——像朋友一样待在你的任务栏里。
+> A desktop-native AI companion with full-duplex voice, persistent memory, and multi-agent orchestration.
 
-![Version](https://img.shields.io/badge/version-0.1.0-blue)
-![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey)
-![Electron](https://img.shields.io/badge/electron-42-9feaf9)
-![Vue](https://img.shields.io/badge/vue-3.5-4fc08d)
-
----
-
-## 功能
-
-### 语音对话
-- **全双工语音** — 像打电话一样自然交流，支持打断、停顿、情绪感知
-- **TTS 语音合成** — MiniMax 引擎，14 种真实发声标签（笑、叹、喘气…），语速自适应
-- **ASR 语音识别** — 支持 DashScope / Deepgram 云端识别
-- **多维情绪** — 开心、难过、温柔、鼓励… 语音语调随情绪变化
-
-### 文字聊天
-- 多会话管理，历史持久化
-- Markdown 渲染、图片粘贴、文件拖放
-- 推理过程展示（思维链）
-- 工具调用审批
-
-### AI 能力
-- **多模型支持** — Claude / DeepSeek / OpenAI 兼容接口
-- **多角色协作** — 创建不同人设的 Agent，自由切换
-- **知识库** — 向量搜索 + RAG 文档检索，支持 PDF、Office 等格式
-- **记忆系统** — 四层记忆（短期/中期/长期/情景），自动提取 + 冲突检测 + 定期巩固
-- **工具调用** — 文件读写、命令执行、网页搜索、浏览器自动化
-
-### 音乐
-- 网易云音乐集成 — 搜索、推荐、歌单、歌词
-- 语音说"放首歌"即可控制
-- 迷你播放器，Agent 说话时自动降低音量
-
-### 其他
-- 系统托盘常驻，Ctrl+Space 唤起
-- 浅色/深色/跟随系统主题
-- 自动更新（GitHub Releases）
-- 隐私保护 — API Key 用系统密钥链加密存储
+[![Version](https://img.shields.io/badge/version-0.1.0-blue)](package.json)
+[![Electron](https://img.shields.io/badge/electron-42-9feaf9)](https://www.electronjs.org/)
+[![Vue](https://img.shields.io/badge/vue-3.5-4fc08d)](https://vuejs.org/)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey)]()
 
 ---
 
-## 快速开始
+## Overview
 
-### 环境要求
+Solace is a desktop AI companion that lives in your system tray. It supports natural voice conversations, multi-turn text chat, music playback via Netease Cloud Music, and a multi-agent system where each agent has its own personality and memory. It integrates deeply with the OS — drag-and-drop files for analysis, global keyboard shortcuts, and system-level notifications.
 
-- **Node.js** >= 18
-- **Windows** 10 / 11
-- **npm** >= 9
+**Core design principles:**
 
-### 安装
+- **Privacy-first.** API keys are encrypted with the OS keychain. All inference happens through your own API accounts. No telemetry.
+- **Truly conversational.** Full-duplex voice means you can interrupt, pause, and speak naturally. The agent reads emotional cues and adjusts tone accordingly.
+- **Memory that works.** A four-tier memory architecture (short-term, medium-term, long-term, episodic) with automatic extraction, conflict detection, and periodic consolidation.
+- **Tool-native.** The agent has access to a growing set of tools — file I/O, web search, browser automation, document parsing, and more.
+
+---
+
+## Feature Map
+
+### Voice
+
+| Feature | Description |
+|---------|-------------|
+| Full-duplex pipeline | Bidirectional streaming via WebSocket; VAD-based turn detection; interruptible playback |
+| TTS engine | MiniMax v1 voice synthesis with 14 paralinguistic tags (e.g., `(chuckle)`, `(sighs)`, `(breath)`) |
+| ASR | DashScope / Deepgram cloud recognition with real-time partial results |
+| Emotion awareness | Multi-dimensional mood model (happy, sad, angry, playful, gentle, encouraging) — affects TTS tone and word choice |
+| Adaptive speaking rate | Dynamic speed scaling based on response length (0.85×–0.94×) |
+| Music ducking | Automatically lowers music volume during speech |
+
+### Text Chat
+
+| Feature | Description |
+|---------|-------------|
+| Multi-session | Independent conversation tabs with persistent history |
+| Markdown rendering | Full GFM with code blocks, tables, and inline images |
+| File drag-and-drop | PDF, images, Office documents — parsed and fed as context |
+| Reasoning display | Chain-of-thought visibility for supported models |
+| Tool approval gate | User-in-the-loop confirmation for sensitive tool calls |
+
+### AI Engine
+
+| Feature | Description |
+|---------|-------------|
+| Multi-provider | Claude (Anthropic), DeepSeek, OpenAI-compatible endpoints |
+| Multi-agent | Create agents with distinct personalities; switch mid-conversation |
+| Knowledge base | Local vector search (bge-micro-v2 embeddings) with RAG retrieval |
+| Memory system | Four-layer architecture with auto-extraction, conflict resolution, and merge consolidation |
+| Tool system | Extensible plugin architecture — web search, file operations, browser automation, document generation |
+
+### Music
+
+| Feature | Description |
+|---------|-------------|
+| Netease Cloud Music | Full API integration: search, playlists, recommendations, lyrics |
+| Voice control | Natural language music commands ("放首安静的", "下一首") |
+| Mini player | Compact overlay with playback controls |
+
+---
+
+## Prerequisites
+
+| Requirement | Minimum | Recommended |
+|-------------|---------|-------------|
+| Node.js | 18.x | 22 LTS |
+| npm | 9.x | 10.x |
+| OS | Windows 10 | Windows 11 |
+| RAM | 4 GB | 8 GB |
+
+---
+
+## Quick Start
 
 ```bash
+# Clone
 git clone https://github.com/LULU6034/Solace.git
 cd Solace
+
+# Install dependencies
 npm install
-```
 
-### 运行
-
-```bash
+# Start development server (hot reload for UI, restart on main-process changes)
 npm run dev
 ```
 
-首次启动后点击左下角齿轮进入设置面板。
+The first launch opens a settings panel. Configure at minimum a primary LLM API key before use.
 
-### 打包
+### Production Build
 
 ```bash
 npm run electron:build
+# Output: release/Solace Setup <version>.exe
 ```
 
-产物在 `release/` 目录。
+The build includes auto-update support via GitHub Releases. Pushing a new release tag triggers `electron-updater` on all installed clients.
 
 ---
 
-## 配置
+## API Key Configuration
 
-应用需要以下 API Key（在设置面板配置，加密存储）：
+All keys are encrypted at rest using Electron's `safeStorage` API (DPAPI on Windows). They never leave your machine.
 
-| Key | 用途 | 获取地址 | 必须 |
-|-----|------|---------|------|
-| 主模型 Key | LLM 对话（Claude / DeepSeek / OpenAI） | 对应平台 | ✓ |
-| 视觉 Key | 图片理解（百炼 Qwen-VL） | [阿里云百炼](https://bailian.console.aliyun.com/) | 可选 |
-| 语音 Key | 百炼 CosyVoice 语音合成 | 同上 | 可选 |
-| TTS Key | MiniMax TTS 语音合成 | [MiniMax](https://platform.minimaxi.com/) | 推荐 |
-| 语音识别 Key | DashScope ASR / Deepgram | 对应平台 | 推荐 |
+| Provider | Purpose | Required | Sign-up |
+|----------|---------|----------|---------|
+| Anthropic / DeepSeek / OpenAI | Primary LLM | **Yes** | [Anthropic Console](https://console.anthropic.com/) · [DeepSeek Platform](https://platform.deepseek.com/) · [OpenAI](https://platform.openai.com/) |
+| MiniMax | TTS voice synthesis | Recommended | [MiniMax Platform](https://platform.minimaxi.com/) |
+| DashScope (Alibaba) | ASR + CosyVoice TTS | Recommended | [Aliyun Bailian](https://bailian.console.aliyun.com/) |
+| Deepgram | Alternative ASR | Optional | [Deepgram](https://deepgram.com/) |
+| 百炼 Qwen-VL | Vision (image understanding) | Optional | [Aliyun Bailian](https://bailian.console.aliyun.com/) |
 
-如果没有配置语音 Key，应用退化为纯文字聊天模式。
+Without TTS/ASR keys, the application falls back to text-only chat mode.
 
 ---
 
-## 项目结构
+## Architecture
+
+```
+┌──────────────────────────────────────────────────────┐
+│                  Electron Main Process               │
+│  ┌──────────┐ ┌──────────┐ ┌──────────────────────┐ │
+│  │  Window  │ │   Tray   │ │   Server (embedded)   │ │
+│  │ Manager  │ │ Manager  │ │  ┌─────────────────┐  │ │
+│  └──────────┘ └──────────┘ │  │   Agent Engine   │  │ │
+│                            │  ├─────────────────┤  │ │
+│  ┌──────────────────────┐  │  │  Voice Pipeline  │  │ │
+│  │     IPC Bridge       │  │  ├─────────────────┤  │ │
+│  │  (contextBridge)     │  │  │  Memory System   │  │ │
+│  └──────────────────────┘  │  ├─────────────────┤  │ │
+│                            │  │  Knowledge Base  │  │ │
+│                            │  ├─────────────────┤  │ │
+│                            │  │  Tool Registry   │  │ │
+│                            │  └─────────────────┘  │ │
+│                            └──────────────────────┘ │
+└──────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────┐
+│                  Renderer Process (Vue 3)             │
+│  ┌──────────┐ ┌──────────┐ ┌──────────────────────┐ │
+│  │   Chat   │ │  Voice   │ │       Settings       │ │
+│  │   Page   │ │   Page   │ │        Panel         │ │
+│  └──────────┘ └──────────┘ └──────────────────────┘ │
+│  ┌──────────┐ ┌──────────┐ ┌──────────────────────┐ │
+│  │  Music   │ │  Memory  │ │       Roles          │ │
+│  │  Panel   │ │  Panel   │ │        Page          │ │
+│  └──────────┘ └──────────┘ └──────────────────────┘ │
+└──────────────────────────────────────────────────────┘
+```
+
+### Directory Layout
 
 ```
 Solace/
-├── electron/           # Electron 主进程
-│   ├── main.cjs        # 窗口管理、托盘、IPC
-│   ├── preload.cjs     # 安全的 IPC 桥接
-│   ├── updater.cjs     # 自动更新
-│   └── ipc/            # IPC 模块（LLM、Voice、Agent、Netease）
-├── server/             # 服务端逻辑（主进程运行）
-│   ├── core/           # Agent 引擎（LLM 客户端、子 Agent、协调器）
-│   ├── voice/          # 语音管道（全双工、TTS、ASR、VAD）
-│   ├── memory/         # 记忆系统（提取、巩固、注入、向量搜索）
-│   ├── knowledge/      # 知识库（嵌入、RAG、图谱）
-│   ├── tools/          # 工具集（音乐、浏览器、文件、技能）
-│   ├── lib/            # 工具库（配置、日志、睡眠模式）
-│   └── prompts/        # 提示词模板
-├── src/                # 前端 UI（Vue 3）
+├── electron/                # Main process
+│   ├── main.cjs             # Window creation, tray, lifecycle
+│   ├── preload.cjs           # contextBridge API surface
+│   ├── updater.cjs           # Auto-update via electron-updater
+│   └── ipc/                  # IPC handlers (llm, voice, agent, netease)
+├── server/                   # Embedded server (runs in main process)
+│   ├── core/                 # Agent loop, LLM client, sub-agent, coordinator
+│   ├── voice/                # Full-duplex, TTS, ASR, VAD, circuit breaker
+│   ├── memory/               # Extraction, consolidation, injection, vector search
+│   ├── knowledge/            # Embedding, chunking, indexing, retrieval
+│   ├── tools/                # Music, browser, file, command, skill tools
+│   ├── lib/                  # Prompt loader, user profile, sleep mode, logger
+│   └── prompts/              # System prompt templates (L1–L4 architecture)
+├── src/                      # Renderer process
 │   ├── pages/
-│   │   ├── chat/       # 文字聊天页
-│   │   ├── voice/      # 语音对话页
-│   │   ├── music/      # 音乐面板
-│   │   ├── memory/     # 记忆面板
-│   │   ├── roles/      # 角色管理
-│   │   ├── settings/   # 设置面板
-│   │   └── knowledge/  # 知识库面板
-│   ├── composables/    # 组合式函数
-│   ├── llm/            # LLM Provider
-│   └── styles/         # 样式 + 设计 Token
-├── plugins-builtin/    # 内置插件
-├── skills-builtin/     # 内置技能
-├── scripts/            # 构建脚本
-└── public/             # 静态资源、图标
+│   │   ├── chat/ChatPage.vue       # Text conversation
+│   │   ├── voice/VoiceChat.vue     # Voice conversation
+│   │   ├── music/MusicPanel.vue    # Music browser & controls
+│   │   ├── memory/MemoryPanel.vue  # Memory graph & conflict resolution
+│   │   ├── roles/RolesPage.vue     # Agent personality management
+│   │   ├── settings/SettingsPanel.vue  # Configuration
+│   │   └── knowledge/              # Knowledge base management
+│   ├── composables/          # useVoice, useFullDuplex, useInstantResponse
+│   ├── styles/               # Design tokens, chat styles
+│   ├── llm/                  # LLM provider abstraction
+│   └── store/                # Zustand stores
+├── plugins-builtin/          # Built-in plugins (weather)
+├── skills-builtin/           # Built-in skills (markdown)
+├── scripts/                  # Build scripts, icon generation
+└── public/                   # Static assets, app icons
+```
+
+### Memory Architecture
+
+```
+User Message
+     │
+     ▼
+┌─────────────┐    ┌─────────────┐    ┌───────────────┐    ┌─────────────┐
+│  Short-term │ → │  Medium-term │ → │   Long-term   │ ← │  Episodic   │
+│  (session)  │   │  (recent)    │   │  (persistent)  │   │  (events)   │
+└─────────────┘    └─────────────┘    └───────────────┘    └─────────────┘
+                          │                     │
+                          ▼                     ▼
+                   ┌─────────────┐     ┌───────────────┐
+                   │  Extractor  │     │  Consolidator │
+                   │  (per-turn) │     │  (every N turns)│
+                   └─────────────┘     └───────────────┘
 ```
 
 ---
 
-## 技术栈
+## Technology Stack
 
-| 层 | 技术 |
-|----|------|
-| 桌面框架 | Electron 42 |
-| 前端 | Vue 3 + Vite 8 |
-| 状态管理 | Zustand |
-| 动画 | GSAP + Three.js |
-| 样式 | CSS 自定义属性 + 设计 Token |
-| 语音 | MiniMax TTS + DashScope ASR + Deepgram |
-| 嵌入 | Xenova bge-micro-v2（本地 CPU） |
-| 向量 | SQLite + 余弦相似度 |
-| 工具 | Playwright 浏览器自动化、Tesseract OCR、Sharp 图像 |
-| 文档解析 | pdf-parse + pdfjs + @kreuzberg/node |
-| 更新 | electron-updater + GitHub Releases |
+| Layer | Technology |
+|-------|-----------|
+| Application framework | Electron 42 |
+| UI framework | Vue 3 (Composition API) |
+| Build tooling | Vite 8 |
+| State management | Zustand |
+| Animation | GSAP, Three.js |
+| Styling | CSS custom properties, design tokens |
+| Voice synthesis | MiniMax TTS (streaming) |
+| Speech recognition | DashScope ASR, Deepgram |
+| Embeddings | Xenova bge-micro-v2 (local CPU, 384-dim) |
+| Vector store | SQLite + cosine similarity |
+| Document parsing | pdf-parse, pdfjs-dist, @kreuzberg/node |
+| Browser automation | Playwright + stealth plugin |
+| OCR | Tesseract.js |
+| Image processing | Sharp |
+| Auto-update | electron-updater (GitHub Releases) |
 
 ---
 
-## 开发
+## Extending
 
-```bash
-# 开发模式（热重载）
-npm run dev
+### Adding a Tool
 
-# 单独启动 Electron（不启动 Vite）
-npm run electron:dev
+Create a module in `server/tools/`:
 
-# 构建
-npm run build
-
-# 生成图标
-npm run gen-icons
+```js
+export default {
+  name: 'my_tool',
+  description: 'What this tool does. Be specific — the LLM reads this.',
+  parameters: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: 'Search query' }
+    },
+    required: ['query']
+  },
+  async handler(args, context) {
+    // context has: { config, sendEvent, messages }
+    return 'Tool result here';
+  }
+};
 ```
 
-### 添加新工具
+Then register it in `server/tools/index.js`.
 
-在 `server/tools/` 下创建文件，导出 `{ name, description, parameters, handler }`，然后在 `server/tools/index.js` 注册。
+### Adding a Skill
 
-### 添加新技能
+Create a directory under `skills-builtin/<skill-name>/` with a `SKILL.md` file. The system discovers it automatically on startup. Skills are invoked by the agent via `use_skill` tool.
 
-在 `skills-builtin/` 下创建 `<skill-name>/SKILL.md`，系统会自动发现。
+### Prompt Architecture
+
+The system uses a layered prompt system (L1–L4):
+
+| Layer | File | Purpose |
+|-------|------|---------|
+| L1 | `prompts/app-guide.txt` | Application context & capabilities |
+| L2 | `prompts/tools-guide.txt` | Tool usage rules |
+| L3 | Dynamic (agent.js) | Agent personality profile |
+| L4 | `prompts/voice.txt` / `default.txt` | Mode-specific behavior rules |
+
+All prompts support `{{AGENT_NAME}}` placeholder replacement.
 
 ---
 
 ## License
 
-MIT
+[MIT](LICENSE) © 2026
+
+Solace is distributed under the MIT License — you are free to use, modify, distribute, and sublicense the code for any purpose, commercial or private, provided that the original copyright notice and license text are included in all copies or substantial portions of the software.
+
+The software is provided "as is", without warranty of any kind. See [LICENSE](LICENSE) for the full terms.

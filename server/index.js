@@ -46,7 +46,7 @@ import { WebSocketServer } from 'ws';
 import { Hono } from 'hono';
 import { v4 as uuidv4 } from 'uuid';
 import { createModuleLogger } from './lib/debug-log.js';
-import { VoiceSession, STATES } from './voice/voice-session.js';
+import { VoiceSession } from './voice/voice-session.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -55,12 +55,14 @@ let _runAgent = null;
 let _runAgentGroup = null;
 let _FactStore = null;
 let _MemoryStore = null;
+let _Consolidator = null;
 let _RAGPipeline = null;
 let _Hub = null;
 let _AgentManager = null;
 let _SkillManager = null;
 let _PluginManager = null;
 let _SessionMemory = null;
+let _voiceSessions = null;
 let _MemoryManager = null;
 let _UserProfile = null;
 let _SleepMode = null;
@@ -224,7 +226,8 @@ app.get('/api/cron/:id/history', (c) => {
 
 // ── WebSocket ──
 const httpServer = createServer(app.fetch);
-const wss = new WebSocketServer({ server: httpServer });
+const wss = new WebSocketServer({ server: httpServer, perMessageDeflate: false });
+// 语音流量通过同一个 WSS 多路复用（isBinary + type: 'init' 路由），不再创建第二个 WSS
 
 // Active sessions: sessionId → { ws, config, agents }
 const sessions = new Map();
@@ -235,8 +238,8 @@ const pendingApprovals = new Map();
 // ── Lazy initializers ──
 async function getFactStore() {
   if (!_FactStore) {
-    const { FactStore } = _require('./memory/fact-store-sqlite.js');
-    _FactStore = new FactStore(getPersistDir());
+    const { FactStoreEnhanced } = await import('./memory/fact-store-enhanced.js');
+    _FactStore = new FactStoreEnhanced(getPersistDir());
     await _FactStore.init();
   }
   return _FactStore;
@@ -254,7 +257,7 @@ async function getMemoryStore() {
       factStore: fs,
       ticker: null,
       search(query, k = 5) { return this.factStore.search(query, k); },
-      addFact(fact, tags = [], opts = {}) { return this.factStore.add({ fact, tags, confidence: opts.confidence, half_life_days: opts.half_life_days }); },
+      addFact(fact, tags = [], opts = {}) { return this.factStore.add({ fact, tags, confidence: opts.confidence, half_life_days: opts.half_life_days, source: opts.source }); },
       getAll() { return this.factStore.getAll(); },
       count() { return this.factStore.count(); },
       clear() { this.factStore.clear(); },
@@ -268,7 +271,7 @@ async function getMemoryStore() {
             _vsCache = getVectorSearch();
             await _vsCache.init();
             _vsReady = true;
-          } catch { _vsReady = true; }
+          } catch (e) { log.warn('向量搜索初始化失败，降级关键词搜索:', e.message); _vsReady = true; }
         }
         if (_vsCache?.useTransformer && query?.length >= 2 && !/^\d+$/.test(query)) {
           try {
@@ -316,6 +319,43 @@ async function getMemoryStore() {
     });
   }
   return _MemoryStore;
+}
+
+async function getConsolidator() {
+  if (!_Consolidator) {
+    const { MemoryConsolidator } = await import('./memory/consolidator.js');
+    const store = await getMemoryStore();
+    _Consolidator = new MemoryConsolidator(store.factStore, null, {
+      mergeThreshold: 0.55,   // 中文 Jaccard 需要更低阈值
+      runInterval: 3,         // 每 3 轮合并去重
+    });
+    log.log('记忆巩固器已初始化 (每3轮运行, mergeThreshold=0.55)');
+  }
+  return _Consolidator;
+}
+
+/** 确保巩固器已注入 LLM（使用当前会话的 API Key） */
+async function _ensureConsolidatorLLM(agentConfig) {
+  const c = await getConsolidator();
+  if (!c._llm) {
+    const apiKey = agentConfig?.apiKey;
+    const provider = agentConfig?.provider || 'deepseek';
+    if (!apiKey) { log.warn('巩固器 LLM 未注入: 缺少 API Key，偏好归纳将跳过'); return; }
+    const { createLLM } = await import('./core/llm-client.js');
+    c.setLlm(async (prompt) => {
+      const llm = createLLM({
+        provider,
+        model: 'deepseek-chat',
+        apiKey,
+        temperature: 0.3,
+        maxTokens: 200,
+        thinkingType: 'disabled',
+      });
+      const { content } = await llm.invoke([{ role: 'user', content: prompt }]);
+      return content?.trim() || '';
+    });
+    log.log('巩固器 LLM 已注入');
+  }
 }
 
 async function getRAGPipeline() {
@@ -404,6 +444,29 @@ function getPort() {
   return parseInt(process.env.AGENT_PORT || '9876', 10);
 }
 
+// ── 共享上下文（FD语音 + 旧语音 + 文字聊天 互通）──
+async function _saveSharedHistory(messages, config) {
+  try {
+    const dir = getPersistDir();
+    const file = path.join(dir, 'shared_history.json');
+    let existing = [];
+    if (fs.existsSync(file)) {
+      try { existing = JSON.parse(fs.readFileSync(file, 'utf-8')).history || []; } catch {}
+    }
+    // 取最新几轮 user+assistant 消息
+    const recent = messages.slice(-10).filter(m => m.role === 'user' || m.role === 'assistant');
+    const seen = new Set(existing.map(m => `${m.role}:${(m.content||'').slice(0,50)}`));
+    for (const m of recent) {
+      const key = `${m.role}:${(m.content||'').slice(0,50)}`;
+      if (!seen.has(key)) { existing.push(m); seen.add(key); }
+    }
+    fs.writeFileSync(file, JSON.stringify({
+      history: existing.slice(-60),
+      lastInteractionTime: Date.now(),
+    }), 'utf-8');
+  } catch (e) { /* 静默，不影响主流程 */ }
+}
+
 // ── Message routing ──
 function sendEvent(ws, eventType, data = {}, requestId = '') {
   if (ws.readyState !== ws.OPEN) return;
@@ -426,6 +489,9 @@ async function handleAgentChat(ws, msg) {
   log.log(`agent_chat: agent=${agent?.name} provider=${agentConfig.provider} msgs=${messages.length}`);
 
   const send = (type, data) => {
+    if (type === 'agent_action') {
+      try { ws.send(JSON.stringify({ type: 'state', state: 'executing' })); } catch {}
+    }
     sendEvent(ws, type, data, requestId);
   };
 
@@ -522,12 +588,18 @@ async function handleAgentChat(ws, msg) {
     });
 
     // Post-chat: update memory, profile, knowledge graph
+    // 记忆巩固：后台运行，不阻塞回复
+    _ensureConsolidatorLLM(agentConfig).then(() =>
+      getConsolidator().then(c => c.afterTurn())
+    ).catch(e => { log.warn('巩固器执行失败', e?.message || e); });
     if (_MemoryManager) {
       const lastUserMsg = messages[messages.length - 1];
       if (lastUserMsg?.role === 'user') {
         _MemoryManager.addTurn('user', lastUserMsg.content);
       }
     }
+    // 共享上下文：文字聊天的对话也写入共享历史，FD 语音可读取
+    _saveSharedHistory(messages, agentConfig).catch(e => { log.warn('共享历史保存失败', e?.message || e); });
     const userMsg = messages.find(m => m.role === 'user');
     if (userMsg?.content) {
       // Ingest into knowledge graph (规则 + LLM 深度推理)
@@ -643,10 +715,158 @@ wss.on('connection', (ws) => {
     platform: process.platform,
   });
 
-  // 语音会话 Map — 连接级别，跨消息持久
-  let _voiceSessions;
+  // ── 语音会话（连接复用）──
+  let _voiceSession = null;     // FullDuplexSession
+  let _voiceConfig = null;
+  let _voiceHistory = [];
+  let _voiceConvId = `voice_${Date.now()}`;
 
-  ws.on('message', async (raw) => {
+  // ── 语音消息处理 ──
+  let _voiceLog = (m, d) => log.log(`[语音] ${m}`, d || '');
+  async function handleVoiceMessage(ws, msg, sid) {
+    _voiceLog(`收到消息: type=${msg.type}`);
+    switch (msg.type) {
+      case 'init': {
+        _voiceConfig = msg.config || {};
+        _voiceLog(`开始初始化, provider=${_voiceConfig.provider}`);
+        try {
+          const { FullDuplexSession } = await import('./voice/full-duplex.js');
+          _voiceLog(`模块已导入`);
+
+          // 获取活跃 Agent 名字（动态，用户可随时改）
+          let _voiceAgentName = 'Sonder';
+          try {
+            const { getAgentManager } = await import('./core/agent-manager.js');
+            const mgr = getAgentManager();
+            const active = mgr.getActiveAgent();
+            if (active?.name) _voiceAgentName = active.name;
+          } catch { _voiceLog('获取 Agent 名字失败，使用默认'); }
+
+          _voiceSession = new FullDuplexSession({
+          sessionId: `fd_${sid}`,
+          config: {
+            ..._voiceConfig,
+            provider: _voiceConfig.provider || 'deepseek',
+            model: _voiceConfig.model || 'deepseek-chat',
+            apiKey: _voiceConfig.apiKey || '',
+            dashscopeApiKey: _voiceConfig.dashscopeApiKey || '',
+            minimaxApiKey: _voiceConfig.minimaxApiKey || '',
+            deepgramApiKey: _voiceConfig.deepgramApiKey || '',
+            agentName: _voiceAgentName,
+          },
+          sendToClient: (data) => {
+            if (ws.readyState === ws.OPEN) {
+              try { ws.send(JSON.stringify(data)); } catch {}
+            }
+          },
+          sendAudioToClient: (audioBuffer, isLast, text) => {
+            if (ws.readyState === ws.OPEN) {
+              // Header JSON, 然后 binary 音频帧
+              try { ws.send(JSON.stringify({ type: 'tts_audio', size: audioBuffer.length, isLast, text: text?.slice(0, 100) || '' })); } catch {}
+              try { ws.send(audioBuffer); } catch (e) { log.warn('发送音频帧失败:', e.message); }
+            }
+          },
+          runAgent: (msgs, cfg) => {
+            if (!_runAgent) {
+              return import('./core/agent.js').then(m => { _runAgent = m.runAgent; return _voiceRunAgent(msgs, cfg, sid); });
+            }
+            return _voiceRunAgent(msgs, cfg, sid);
+          },
+        });
+
+        if (msg.history?.length) {
+          _voiceHistory = msg.history.slice(-20);
+          _voiceSession.conversationHistory = [..._voiceHistory];
+        }
+
+        try { ws.send(JSON.stringify({ type: 'ready', sessionId: `fd_${sid}`, message: '全双工语音会话已就绪' })); } catch {}
+        log.log(`全双工初始化: fd_${sid}, 历史=${_voiceSession.conversationHistory.length}条`);
+        } catch (e) {
+          log.error(`全双工初始化失败: ${e.message}`, e.stack);
+          try { ws.send(JSON.stringify({ type: 'error', message: `初始化失败: ${e.message}` })); } catch {}
+        }
+        break;
+      }
+      case 'interrupt':
+        if (_voiceSession) {
+          _voiceSession._interruptTTS();
+          _voiceSession.state = 'idle';
+          try { ws.send(JSON.stringify({ type: 'state', state: 'idle' })); } catch {}
+        }
+        break;
+      case 'stop':
+        if (_voiceSession) { _voiceSession.close(); _voiceSession = null; }
+        try { ws.send(JSON.stringify({ type: 'stopped', sessionId: `fd_${sid}` })); } catch {}
+        break;
+      case 'ping':
+        try { ws.send(JSON.stringify({ type: 'pong' })); } catch {}
+        break;
+    }
+  }
+
+  // Agent 流式调用 (async 函数，返回 AsyncIterable 对象)
+  async function _voiceRunAgent(messages, config, sid) {
+    const chunkQueue = [];
+    let resolveNext = null;
+    let isDone = false;
+
+    function pushChunk(content, done) {
+      if (resolveNext) { resolveNext({ content, done }); resolveNext = null; }
+      else { chunkQueue.push({ content, done }); }
+    }
+
+    _runAgent({
+      config,
+      messages,
+      convId: _voiceConvId,
+      memoryStore: await getMemoryStore(),
+      memoryManager: _MemoryManager || null,
+      userProfile: _UserProfile || null,
+      ragPipeline: await getRAGPipeline(),
+      sendEvent: async (type, data) => {
+        if (type === 'agent_action') {
+          // 工具调用 → 发送 executing 状态
+          log.log(`[语音] agent_action: ${data?.tool || '?'}`);
+          try { ws.send(JSON.stringify({ type: 'state', state: 'executing' })); } catch {}
+        } else if (type === 'chunk' || type === 'agent_thought') {
+          const content = data?.content || data?.data?.content || '';
+          if (content) pushChunk(content, false);
+        } else if (type === 'done') { pushChunk(data?.content || '', true); isDone = true; }
+      },
+      waitApproval: () => Promise.resolve(true),
+      chatMode: 'voice',
+    }).catch(err => { log.error('语音 Agent 失败:', err.message); pushChunk('', true); isDone = true; });
+
+    return {
+      [Symbol.asyncIterator]() {
+        return {
+          async next() {
+            if (chunkQueue.length > 0) {
+              const item = chunkQueue.shift();
+              // 关键：永远用 done: false 返回有内容的 item
+              // 因为 for-await 在 done: true 时会丢弃 value
+              return { value: item, done: false };
+            }
+            if (isDone) return { done: true };  // 队列为空且已结束，真正终止迭代
+            return new Promise(resolve => {
+              const t = setTimeout(() => { resolveNext = null; resolve({ done: true }); }, 60_000);
+              resolveNext = (item) => { clearTimeout(t); resolve({ value: item, done: false }); };
+            });
+          },
+        };
+      },
+    };
+  }
+
+  ws.on('message', async (raw, isBinary) => {
+    // ── 二进制 PCM 音频帧 → 语音会话 ──
+    if (isBinary) {
+      if (_voiceSession) {
+        _voiceSession.feedAudio(Buffer.from(raw));
+      }
+      return;
+    }
+
     let msg;
     try {
       msg = JSON.parse(raw.toString());
@@ -655,6 +875,17 @@ wss.on('connection', (ws) => {
     }
 
     const msgType = msg.type || '';
+
+    // ── 语音会话控制消息 (只处理语音专用消息, ping/heartbeat 走正常流程) ──
+    if (msgType === 'init' || msgType === 'interrupt' || msgType === 'stop') {
+      await handleVoiceMessage(ws, msg, sessionId);
+      return;
+    }
+    // 前端发出的 ping 返回 pong（不含 request_id 的 ping 才是前端语音连接）
+    if (msgType === 'ping' && !msg.request_id) {
+      try { ws.send(JSON.stringify({ type: 'pong' })); } catch {}
+      return;
+    }
 
     switch (msgType) {
       case 'agent_chat':
@@ -1473,6 +1704,7 @@ wss.on('connection', (ws) => {
         })();
         break;
       }
+      case 'ping': break; // server-ipc heartbeat, 已在前面处理
       default:
         log.warn(`未知消息类型: ${msgType}`);
     }
@@ -1480,6 +1712,7 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     sessions.delete(sessionId);
+    if (_voiceSession) { _voiceSession.close(); _voiceSession = null; }
     log.log(`WebSocket 断开: ${sessionId}`);
   });
 
@@ -1520,12 +1753,13 @@ async function initHub() {
   const agentsDir = path.join(getPersistDir(), 'agents');
   fs.mkdirSync(agentsDir, { recursive: true });
 
-  const { AgentManager: AM } = await import('./core/agent-manager.js');
+  const { AgentManager: AM, setAgentManager } = await import('./core/agent-manager.js');
   _AgentManager = new AM({
     agentsDir,
     memoryStore: await getMemoryStore(),
     ragPipeline: getRAGPipeline(),
   });
+  setAgentManager(_AgentManager);
 
   // Initialize built-in agents (idempotent: won't recreate if already exist)
   await _AgentManager.initBuiltinAgents();
@@ -1636,6 +1870,9 @@ async function initHub() {
           },
           waitApproval: () => Promise.resolve(true),
         });
+        _ensureConsolidatorLLM(config).then(() =>
+          getConsolidator().then(c => c.afterTurn())
+        ).catch(e => { log.warn('巩固器执行失败(cron)', e?.message || e); });
         return { content: resultContent };
       },
     },
@@ -1791,9 +2028,8 @@ function _preload() {
 const PORT = getPort();
 httpServer.listen(PORT, '127.0.0.1', async () => {
   log.log(`Agent Server 已启动: http://127.0.0.1:${PORT}`);
+  log.log(`语音全双工: 就绪 (单 WSS 复用)`);
   _preload();
-  // Init Hub non-blocking — server responds immediately,
-  // skills/plugins/heartbeats load in background
   initHub().catch(err => { log.error(`Hub 初始化失败: ${err.message}`); log.error(err.stack); });
 });
 
@@ -1811,4 +2047,4 @@ async function shutdown() {
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
-export { app, wss, getMemoryStore, getRAGPipeline, getFactStore };
+export { app, wss, getMemoryStore, getRAGPipeline, getFactStore, getConsolidator };

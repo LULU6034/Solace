@@ -70,7 +70,13 @@ autoUpdater.on('error', (err) => {
   });
 });
 
-// ── IPC ──
+// ── 始终注册的基础 IPC（开发 & 生产都需要）──
+ipcMain.handle('update:get-version', async () => {
+  const pkg = require('../package.json');
+  return { version: pkg.version, name: pkg.build?.productName || pkg.name };
+});
+
+// ── 更新相关 IPC（仅生产模式）──
 
 function setupUpdater(mainWindow) {
   _mainWindow = mainWindow;
@@ -100,11 +106,6 @@ function setupUpdater(mainWindow) {
     } catch (err) {
       return { success: false, error: err?.message || '安装失败' };
     }
-  });
-
-  ipcMain.handle('update:get-version', async () => {
-    const pkg = require('../package.json');
-    return { version: pkg.version, name: pkg.build?.productName || pkg.name };
   });
 
   // 启动时自动检查一次（延迟 5 秒等窗口就绪）

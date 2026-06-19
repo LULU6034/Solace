@@ -69,22 +69,9 @@
       "plugins-builtin/**/*",
       "skills-builtin/**/*",
       "data/**/*",
-      "public/**/*",
-      "!node_modules",
-      "node_modules/electron-updater",
-      "node_modules/builder-util-runtime",
-      "node_modules/lazy-val"
+      "public/**/*"
     ],
-    "asar": true,
-    "asarUnpack": [
-      "node_modules/electron-updater/**/*",
-      "node_modules/builder-util-runtime/**/*",
-      "node_modules/lazy-val/**/*",
-      "node_modules/sharp/**/*",
-      "node_modules/@xenova/**/*",
-      "node_modules/canvas/**/*",
-      "node_modules/sql.js/**/*"
-    ],
+    "asar": false,
     "win": {
       "target": "nsis",
       "icon": "public/icon.png"

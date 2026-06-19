@@ -14,9 +14,6 @@ export { _FactStore as FactStore };
 const log = createModuleLogger('fact-store-enhanced');
 
 export class FactStoreEnhanced extends _FactStore {
-  /** @type {import('sql.js').Database|null} */
-  #_db = null;
-
   constructor(persistDir) {
     super(persistDir);
     // 向量搜索
@@ -30,13 +27,9 @@ export class FactStoreEnhanced extends _FactStore {
     this._embeddingCacheTTL = 60000;
   }
 
-  /** 兼容父类通过 this.db 读写数据库 */
-  get db() { return this.#_db; }
-  set db(v) { this.#_db = v; }
-
   async init() {
     await super.init();
-    this.db.run(`
+    this._store.run(`
       CREATE TABLE IF NOT EXISTS facts_meta (
         id TEXT PRIMARY KEY,
         confidence REAL NOT NULL DEFAULT 0.5,
@@ -52,10 +45,10 @@ export class FactStoreEnhanced extends _FactStore {
   _ensureVectorColumn() {
     if (this._vectorColumnReady) return;
     try {
-      const cols = this.db.exec('PRAGMA table_info(facts)');
+      const cols = this._store.exec('PRAGMA table_info(facts)');
       const names = (cols[0]?.values || []).map(r => r[1]);
       if (!names.includes('vector')) {
-        this.db.run('ALTER TABLE facts ADD COLUMN vector TEXT DEFAULT NULL');
+        this._store.run('ALTER TABLE facts ADD COLUMN vector TEXT DEFAULT NULL');
         this._save();
         log.log('已添加 vector 列');
       }
@@ -70,7 +63,7 @@ export class FactStoreEnhanced extends _FactStore {
   add(entry) {
     const result = super.add(entry);
     const id = _mkId(entry.fact);
-    this.db.run(
+    this._store.run(
       `INSERT OR REPLACE INTO facts_meta (id, confidence, half_life_days, source) VALUES (?, ?, ?, ?)`,
       [id, entry.confidence ?? 0.5, entry.half_life_days ?? (entry.confidence > 0.8 ? 365 : 90), entry.source ?? null]
     );
@@ -94,11 +87,11 @@ export class FactStoreEnhanced extends _FactStore {
       const halfLife = (r.half_life_days || 30) * 24;
       const newConf = parseFloat(((r.confidence || 0.5) * Math.pow(2, -ageHours / halfLife)).toFixed(4));
       if (newConf < 0.05) {
-        this.db.run('DELETE FROM facts_meta WHERE id = ?', [r.id]);
-        this.db.run('DELETE FROM facts WHERE id = ?', [r.id]);
+        this._store.run('DELETE FROM facts_meta WHERE id = ?', [r.id]);
+        this._store.run('DELETE FROM facts WHERE id = ?', [r.id]);
         decayed++;
       } else if (Math.abs(newConf - (r.confidence || 0.5)) > 0.01) {
-        this.db.run('UPDATE facts_meta SET confidence = ? WHERE id = ?', [newConf, r.id]);
+        this._store.run('UPDATE facts_meta SET confidence = ? WHERE id = ?', [newConf, r.id]);
         decayed++;
       }
     }
@@ -109,7 +102,7 @@ export class FactStoreEnhanced extends _FactStore {
   addBatch(entries) {
     const result = super.addBatch(entries);
     for (const e of entries) {
-      this.db.run(
+      this._store.run(
         `INSERT OR REPLACE INTO facts_meta (id, confidence, half_life_days, source) VALUES (?, ?, ?, ?)`,
         [_mkId(e.fact), e.confidence ?? 0.5, e.half_life_days ?? (e.confidence > 0.8 ? 365 : 90), e.source ?? null]
       );
@@ -119,7 +112,7 @@ export class FactStoreEnhanced extends _FactStore {
   }
 
   updateConfidence(id, newConfidence) {
-    this.db.run('UPDATE facts_meta SET confidence = ? WHERE id = ?',
+    this._store.run('UPDATE facts_meta SET confidence = ? WHERE id = ?',
       [Math.max(0, Math.min(1, newConfidence)), id]);
     this._save();
   }
@@ -140,7 +133,7 @@ export class FactStoreEnhanced extends _FactStore {
     );
     const decayed = all.filter(r => (now - r.created_at) / 86400000 > r.half_life_days);
     for (const r of decayed) {
-      this.db.run('UPDATE facts_meta SET confidence = ? WHERE id = ?',
+      this._store.run('UPDATE facts_meta SET confidence = ? WHERE id = ?',
         [Math.max(0, r.confidence * 0.5), r.id]);
     }
     if (decayed.length > 0) this._save();
@@ -252,24 +245,24 @@ export class FactStoreEnhanced extends _FactStore {
     );
     if (existing) {
       if (hasVector) {
-        this.db.run(
+        this._store.run(
           'UPDATE facts SET tags = ?, created_at = ?, confidence = ?, half_life_days = ?, vector = ? WHERE id = ?',
           [tagsJson, createdAt, confidence, halfLifeDays, vectorJson, existing.id]
         );
       } else {
-        this.db.run(
+        this._store.run(
           'UPDATE facts SET tags = ?, created_at = ?, confidence = ?, half_life_days = ? WHERE id = ?',
           [tagsJson, createdAt, confidence, halfLifeDays, existing.id]
         );
       }
     } else {
       if (hasVector) {
-        this.db.run(
+        this._store.run(
           'INSERT INTO facts (id, fact, tags, created_at, session_id, user_id, confidence, half_life_days, vector) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
           [id, fact, tagsJson, createdAt, meta.session_id || null, uid, confidence, halfLifeDays, vectorJson]
         );
       } else {
-        this.db.run(
+        this._store.run(
           'INSERT INTO facts (id, fact, tags, created_at, session_id, user_id, confidence, half_life_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
           [id, fact, tagsJson, createdAt, meta.session_id || null, uid, confidence, halfLifeDays]
         );
@@ -277,7 +270,7 @@ export class FactStoreEnhanced extends _FactStore {
     }
 
     // 同步维护 facts_meta 表
-    this.db.run(
+    this._store.run(
       'INSERT OR REPLACE INTO facts_meta (id, confidence, half_life_days, source) VALUES (?, ?, ?, ?)',
       [id, confidence, halfLifeDays, source]
     );

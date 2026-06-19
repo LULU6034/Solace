@@ -30,7 +30,7 @@ export class FactStore {
     this.persistDir = persistDir;
     this.userId = userId;
     this.dbPath = path.join(persistDir, `facts_${userId}.db`);
-    this.db = null;
+    this._store = null;
     this._ready = false;
     // Init is async — call init() before use
   }
@@ -73,30 +73,30 @@ export class FactStore {
 
     if (fs.existsSync(this.dbPath)) {
       const buf = fs.readFileSync(this.dbPath);
-      this.db = new SQL.Database(buf);
+      this._store = new SQL.Database(buf);
     } else {
-      this.db = new SQL.Database();
+      this._store = new SQL.Database();
     }
 
-    this.db.run('PRAGMA journal_mode = MEMORY');
-    this.db.run('PRAGMA synchronous = OFF');
+    this._store.run('PRAGMA journal_mode = MEMORY');
+    this._store.run('PRAGMA synchronous = OFF');
     this._migrate();
     // 验证 schema 完整性
     try {
-      const cols = this.db.exec('PRAGMA table_info(facts)');
+      const cols = this._store.exec('PRAGMA table_info(facts)');
       const names = cols[0]?.values?.map(r => r[1]) || [];
       if (!names.includes('deleted_at')) {
         log.warn(`Schema 缺少 deleted_at 列，强制重建。当前列: ${names.join(',')}`);
-        this.db.run('DROP TABLE IF EXISTS facts');
+        this._store.run('DROP TABLE IF EXISTS facts');
         this._migrate();
       }
     } catch (e) { log.warn('操作失败', e?.message || e); }
-    this._cleanRecycleBin();
     this._ready = true;
+    this._cleanRecycleBin();
   }
 
   _migrate() {
-    this.db.run(`
+    this._store.run(`
       CREATE TABLE IF NOT EXISTS facts (
         id TEXT PRIMARY KEY,
         fact TEXT NOT NULL,
@@ -112,14 +112,14 @@ export class FactStore {
     // 兼容旧表结构: 添加缺失列（逐列检测，避免重复添加报错）
     const existingCols = new Set();
     try {
-      const cols = this.db.exec('PRAGMA table_info(facts)');
+      const cols = this._store.exec('PRAGMA table_info(facts)');
       if (cols[0]?.values) {
         for (const row of cols[0].values) existingCols.add(row[1]); // column name is index 1
       }
     } catch (e) { log.warn('操作失败', e?.message || e); }
     const addCol = (name, type) => {
       if (!existingCols.has(name)) {
-        try { this.db.run(`ALTER TABLE facts ADD COLUMN ${name} ${type} DEFAULT NULL`); } catch (e) { log.warn('操作失败', e?.message || e); }
+        try { this._store.run(`ALTER TABLE facts ADD COLUMN ${name} ${type} DEFAULT NULL`); } catch (e) { log.warn('操作失败', e?.message || e); }
       }
     };
     addCol('user_id', 'TEXT');
@@ -127,16 +127,16 @@ export class FactStore {
     addCol('half_life_days', 'INTEGER');
     addCol('deleted_at', 'INTEGER');
     // Create index for fast LIKE search
-    this.db.run('CREATE INDEX IF NOT EXISTS idx_facts_created ON facts(created_at)');
-    this.db.run('CREATE INDEX IF NOT EXISTS idx_facts_user ON facts(user_id)');
-    this.db.run('CREATE INDEX IF NOT EXISTS idx_facts_deleted ON facts(deleted_at)');
+    this._store.run('CREATE INDEX IF NOT EXISTS idx_facts_created ON facts(created_at)');
+    this._store.run('CREATE INDEX IF NOT EXISTS idx_facts_user ON facts(user_id)');
+    this._store.run('CREATE INDEX IF NOT EXISTS idx_facts_deleted ON facts(deleted_at)');
   }
 
   /** Persist to disk */
   _save() {
-    if (!this.db) return;
+    if (!this._store) return;
     try {
-      const data = this.db.export();
+      const data = this._store.export();
       fs.writeFileSync(this.dbPath, Buffer.from(data));
     } catch (e) {
       log.warn(`保存失败: ${e.message}`);
@@ -148,7 +148,7 @@ export class FactStore {
   }
 
   add(entry) {
-    if (!this._ready) throw new Error('FactStore not initialized — call init() first');
+    if (!this._ready) { log.error('[FactStore] add 失败: 未初始化'); throw new Error('FactStore not initialized — call init() first'); }
     const id = _mkId(entry.fact);
     const tags = JSON.stringify(entry.tags || []);
     const createdAt = entry.time ? new Date(entry.time).getTime() : Date.now();
@@ -161,18 +161,22 @@ export class FactStore {
       [entry.fact, uid]
     );
     if (existing) {
-      this.db.run(
+      log.log(`[FactStore] 更新: id=${existing.id} fact="${entry.fact.slice(0,50)}" conf=${confidence}`);
+      this._store.run(
         'UPDATE facts SET tags = ?, created_at = ?, confidence = ?, half_life_days = ? WHERE id = ?',
         [tags, createdAt, confidence, halfLifeDays, existing.id]
       );
     } else {
-      this.db.run(
+      log.log(`[FactStore] 新增: id=${id} fact="${entry.fact.slice(0,50)}" conf=${confidence} halfLife=${halfLifeDays}d`);
+      this._store.run(
         'INSERT INTO facts (id, fact, tags, created_at, session_id, user_id, confidence, half_life_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         [id, entry.fact, tags, createdAt, entry.session_id || null, uid, confidence, halfLifeDays]
       );
     }
+    const beforeSave = this.count();
     this._save();
-    return this.count();
+    log.log(`[FactStore] save完成, 当前总数: ${beforeSave} (dbPath=${this.dbPath}, size=${fs.statSync(this.dbPath).size}B)`);
+    return beforeSave;
   }
 
   addBatch(entries) {
@@ -184,7 +188,7 @@ export class FactStore {
       const createdAt = e.time ? new Date(e.time).getTime() : Date.now();
       const confidence = e.confidence ?? 0.5;
       const halfLifeDays = e.half_life_days ?? 90;
-      this.db.run(
+      this._store.run(
         'INSERT OR REPLACE INTO facts (id, fact, tags, created_at, session_id, user_id, confidence, half_life_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         [id, e.fact, tags, createdAt, e.session_id || null, uid, confidence, halfLifeDays]
       );
@@ -262,7 +266,7 @@ export class FactStore {
       [factText, uid]
     );
     if (!existing) return false;
-    this.db.run('UPDATE facts SET deleted_at = ? WHERE id = ?', [Date.now(), existing.id]);
+    this._store.run('UPDATE facts SET deleted_at = ? WHERE id = ?', [Date.now(), existing.id]);
     this._save();
     log.log(`回收站: "${factText.slice(0, 40)}" (7天后清除)`);
     return true;
@@ -277,7 +281,7 @@ export class FactStore {
       [factText, uid]
     );
     if (!existing) return false;
-    this.db.run('UPDATE facts SET deleted_at = NULL WHERE id = ?', [existing.id]);
+    this._store.run('UPDATE facts SET deleted_at = NULL WHERE id = ?', [existing.id]);
     this._save();
     return true;
   }
@@ -302,32 +306,38 @@ export class FactStore {
   _cleanRecycleBin() {
     if (!this._ready) return;
     const cutoff = Date.now() - 7 * 86400000;
-    const result = this.db.run('DELETE FROM facts WHERE deleted_at IS NOT NULL AND deleted_at < ?', [cutoff]);
+    const result = this._store.run('DELETE FROM facts WHERE deleted_at IS NOT NULL AND deleted_at < ?', [cutoff]);
     if (result) this._save();
   }
 
   delete(id) {
     if (!this._ready) return;
     // 硬删除（跳过回收站，用于用户主动清空）
-    this.db.run('DELETE FROM facts WHERE id = ?', [id]);
+    this._store.run('DELETE FROM facts WHERE id = ?', [id]);
     this._save();
   }
 
-  /** 衰减检查：删除半衰期已过的低置信度事实（移入回收站） */
+  /** 衰减检查：移除过期/低价值事实（移入回收站） */
   decayCheck() {
     if (!this._ready) return 0;
     const now = Date.now();
     const rows = this._queryAll(
-      'SELECT id, fact, created_at, confidence, half_life_days FROM facts WHERE deleted_at IS NULL AND user_id = ?',
+      'SELECT id, fact, created_at, confidence, half_life_days, tags FROM facts WHERE deleted_at IS NULL AND user_id = ?',
       [this.userId]
     );
     let decayed = 0;
     for (const row of rows) {
       const ageMs = now - row.created_at;
       const halfLifeMs = (row.half_life_days || 90) * 86400000;
-      // 超过 2 个半衰期 + 低置信度 → 衰减
-      if (ageMs > halfLifeMs * 2 && (row.confidence || 0.5) < 0.6) {
-        this.db.run('UPDATE facts SET deleted_at = ? WHERE id = ?', [now, row.id]);
+      const tags = _safeJsonParse(row.tags) || [];
+      const isState = tags.includes('state');
+      // state 事实(情绪/临时状态): 超过 1 个半衰期就衰减
+      // 其他事实(偏好/身份): 超过 1.5 个半衰期 + 低置信度
+      const shouldDecay = isState
+        ? ageMs > halfLifeMs * 1.0
+        : ageMs > halfLifeMs * 1.5 && (row.confidence || 0.5) < 0.7;
+      if (shouldDecay) {
+        this._store.run('UPDATE facts SET deleted_at = ? WHERE id = ?', [now, row.id]);
         decayed++;
       }
     }
@@ -345,13 +355,13 @@ export class FactStore {
   clear() {
     if (!this._ready) return;
     const uid = this.userId;
-    this.db.run('DELETE FROM facts WHERE user_id = ?', [uid]);
+    this._store.run('DELETE FROM facts WHERE user_id = ?', [uid]);
     this._save();
   }
 
   close() {
-    this.db?.close();
-    this.db = null;
+    this._store?.close();
+    this._store = null;
     this._ready = false;
   }
 
@@ -359,7 +369,7 @@ export class FactStore {
 
   _queryOne(sql, params = []) {
     try {
-      const stmt = this.db.prepare(sql);
+      const stmt = this._store.prepare(sql);
       stmt.bind(params);
       if (stmt.step()) {
         const row = stmt.getAsObject();
@@ -376,7 +386,7 @@ export class FactStore {
 
   _queryAll(sql, params = []) {
     try {
-      const stmt = this.db.prepare(sql);
+      const stmt = this._store.prepare(sql);
       stmt.bind(params);
       const rows = [];
       while (stmt.step()) {

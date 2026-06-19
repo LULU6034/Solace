@@ -71,7 +71,7 @@ export function assembleSystemPrompt(mode = 'chat') {
 
   // L4: 模式行为规则
   const modeFile = mode === 'voice' ? 'voice' : mode === 'group' ? 'group' : 'default';
-  try { parts.push(loadPrompt(modeFile)); } catch { parts.push(loadPrompt('default')); }
+  try { parts.push(loadPrompt(modeFile)); } catch (e) { log.warn(`提示词加载失败: ${modeFile}.txt, 回退到 default → ${e.message}`); parts.push(loadPrompt('default')); }
 
   return parts.join('\n\n');
 }

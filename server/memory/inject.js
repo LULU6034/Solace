@@ -146,11 +146,13 @@ async function buildProfileSummary(memoryManager, userNickname) {
       return _profileCache.text;
     }
 
-    // 按维度分组
+    // 按维度分组，优先取最近的事实
+    const sorted = [...allFacts].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
     const groups = { identity: [], preference: [], state: [] };
-    for (const f of allFacts) {
+    for (const f of sorted) {
       const dim = classifyDimension(f);
-      groups[dim].push(f.fact || f);
+      const text = (f.fact || f) + (f.created_at ? '' : ''); // 保持原有格式
+      groups[dim].push(text);
     }
 
     // 构建 LLM prompt

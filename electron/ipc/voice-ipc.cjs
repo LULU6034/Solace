@@ -121,18 +121,18 @@ function getApiKeyFromConfig() {
   // 配合 voice_modify 微调音色 + 语气词标签注入文本
   // 情绪只影响语速，不改音色/pitch/emotion 参数
   const EMOTION_PRESETS = {
-    happy:       { speedMul: 1.1  },
-    sad:         { speedMul: 0.88 },
-    angry:       { speedMul: 1.15 },
-    worried:     { speedMul: 0.92 },
-    encouraging: { speedMul: 1.05 },
-    funny:       { speedMul: 1.08 },
-    sarcastic:   { speedMul: 1.0  },
-    gentle:      { speedMul: 0.85 },
-    neutral:     { speedMul: 1.0  },
+    happy:       { speedMul: 1.10, pitch:  2, mmEmotion: 'happy' },
+    sad:         { speedMul: 0.88, pitch: -2, mmEmotion: 'sad' },
+    angry:       { speedMul: 1.15, pitch:  3, mmEmotion: 'angry' },
+    worried:     { speedMul: 0.92, pitch: -1, mmEmotion: 'fearful' },
+    encouraging: { speedMul: 1.05, pitch:  1, mmEmotion: 'fluent' },
+    funny:       { speedMul: 1.08, pitch:  2, mmEmotion: 'happy' },
+    sarcastic:   { speedMul: 1.05, pitch:  1, mmEmotion: 'fluent' },
+    gentle:      { speedMul: 0.85, pitch:  0, mmEmotion: 'calm' },
+    neutral:     { speedMul: 1.0,  pitch:  0, mmEmotion: 'calm' },
   };
 
-  // ── MiniMax 音色 ──
+  // ── MiniMax 音色 (v1 不支持 emotion/pitch/标签) ──
   const MINIMAX_VOICES = {
     default_female: 'Chinese (Mandarin)_Gentleman',  // 中文绅士男声
     default_male: 'male-qn-jingying',

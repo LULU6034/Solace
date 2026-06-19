@@ -131,7 +131,7 @@ class ServerBridge {
           return;
         }
 
-        const ws = new WebSocket(`ws://127.0.0.1:${this.port}`);
+        const ws = new WebSocket(`ws://127.0.0.1:${this.port}`, { perMessageDeflate: false });
 
         ws.on('open', () => {
           console.log('[server-ipc] WebSocket 已连接');
@@ -170,8 +170,8 @@ class ServerBridge {
           }, 10000);
         });
 
-        ws.on('error', () => {
-          // Server not ready yet, retry
+        ws.on('error', (err) => {
+          console.error(`[server-ipc] 连接错误 (尝试 ${attempt}/30): ${err.message}`);
           ws.close();
           setTimeout(() => tryConnect(attempt + 1), 500);
         });

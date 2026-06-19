@@ -21,16 +21,15 @@ export async function transcribeAudio(audioBuffer, apiKey) {
   // MediaRecorder 产的 WebM 需要先转码，这里直接 POST raw data
   const form = new FormData();
   form.append('model', 'paraformer-realtime-v2');
-  form.append('format', 'webm');        // MediaRecorder 默认格式
+  form.append('format', 'wav');        // MediaRecorder 默认格式
   form.append('sample_rate', '16000');
   form.append('disfluency_removal_enabled', 'false');
-  form.append('file', new Blob([audioBuffer]), 'audio.webm');
+  form.append('file', new Blob([audioBuffer]), 'audio.wav');
 
   const res = await fetch(DASHSCOPE_URL, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
-      'X-DashScope-Async': 'false',
     },
     body: form,
   });

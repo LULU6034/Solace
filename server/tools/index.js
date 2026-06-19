@@ -13,7 +13,7 @@ import { executeCommand } from './command-tool.js';
 import { remember, recall, forget, updateMemory, memoryStatus, setKG, setMemoryManagerForTools } from './memory-tools.js';
 export { setKG, setMemoryManagerForTools };
 import { getAgentTools } from './agent-tools.js';
-import { musicTools, setMusicMemoryStore } from './music-tools.js';
+import { musicTools, setMusicMemoryStore, setLastPlayedSong, getLastPlayedSongId } from './music-tools.js';
 import { kbTools } from '../knowledge/tools.js';
 import { kbGraphTools } from '../knowledge/graph-tools.js';
 import { reminderTools } from './reminder-tool.js';
@@ -27,7 +27,7 @@ export { setSkillManager };
 // Re-export from shared module to break circular dependency
 export { setMemoryStore, getMemoryStore } from './memory-store-ref.js';
 // Expose for music tools
-export { setMusicMemoryStore };
+export { setMusicMemoryStore, setLastPlayedSong, getLastPlayedSongId };
 
 const _agentTools = getAgentTools();
 

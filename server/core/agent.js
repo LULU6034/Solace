@@ -77,9 +77,12 @@ function _thinkingPrompt(hasImages) {
   return `${appContext}\n\n${langBlock}\n\n用户发来了一条文字消息。请用中文思考：判断意图，2-3 句。`;
 }
 
-async function _defaultSystemPrompt(chatMode = 'chat') {
+async function _defaultSystemPrompt(chatMode = 'chat', agentName = 'Sonder') {
   let prompt;
-  try { prompt = assembleSystemPrompt(chatMode); } catch { prompt = '你是用户的 AI 陪伴者。简洁自然地回复。'; }
+  try { prompt = assembleSystemPrompt(chatMode); } catch { prompt = '你是用户的朋友。简洁自然地回复。'; }
+
+  // 替换动态占位符
+  prompt = prompt.replace(/\{\{AGENT_NAME\}\}/g, agentName);
 
   // 注入已启用的 Skill 目录 + 路由规则
   try {
@@ -268,18 +271,34 @@ async function _runAnswerPhase({
 
   // Build conversation messages
   // L1+L2+L4 系统提示词始终注入，agent 人格提示词附加在后面
-  const assembledPrompt = await _defaultSystemPrompt(chatMode);
+  let agentName = config?.agentName || 'Sonder';
+  if (!config?.agentName) {
+    try {
+      const { getAgentManager } = await import('./agent-manager.js');
+      const mgr = getAgentManager();
+      const active = mgr.getActiveAgent();
+      if (active?.name) agentName = active.name;
+    } catch (e) { log.warn('获取活跃 Agent 名字失败:', e.message); }
+  }
+  const assembledPrompt = await _defaultSystemPrompt(chatMode, agentName);
+  // 注入用户上下文（昵称 + 时间感知）
+  const nickname = config?.userNickname || '';
+  const now = new Date();
+  const hour = now.getHours();
+  const timeCtx = hour >= 23 || hour < 6 ? '现在是深夜，语气温柔安静' : hour < 9 ? '现在是清晨' : hour < 12 ? '现在是上午' : hour < 18 ? '现在是下午' : '现在是晚上';
+  const userCtx = nickname ? `\n\n## 当前上下文\n用户叫「${nickname}」。${timeCtx}（${now.toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit'})}）。用合适的语气和用户交流。` : '';
+  const promptWithCtx = assembledPrompt + userCtx;
   const hasExistingSystem = history.some(m => m.role === 'system');
   // 用模块级常量
   const lcMessages = hasExistingSystem
     ? [
         {
           role: 'system',
-          content: (assembledPrompt + '\n\n' + history.filter(m => m.role === 'system').map(m => m.content).join('\n\n')).slice(0, MAX_SYSTEM_CHARS),
+          content: (promptWithCtx + '\n\n' + history.filter(m => m.role === 'system').map(m => m.content).join('\n\n')).slice(0, MAX_SYSTEM_CHARS),
         },
         ...history.filter(m => m.role !== 'system').slice(0, -1),  // 排除最后一条用户消息，避免与 line 186 重复
       ]
-    : [{ role: 'system', content: assembledPrompt.slice(0, MAX_SYSTEM_CHARS) }];
+    : [{ role: 'system', content: promptWithCtx.slice(0, MAX_SYSTEM_CHARS) }];
 
   // Inject runtime model info into system message
   const modelInfo = `\n\n[运行环境]\n当前模型: ${config?.provider || 'unknown'} / ${config?.model || 'unknown'}\n软件: Sonder (Electron + Node.js Server)`;
@@ -584,8 +603,12 @@ async function _runAnswerPhase({
     // Memory extraction after conversation
     if (memoryStore && history.length >= 2) {
       try {
-        log.log('记忆提取开始...');
+        log.log(`[记忆] 提取开始, history=${history.length}条, memoryStore有addFact=${!!memoryStore.addFact}`);
+        const countBefore = memoryStore.count?.() ?? -1;
+        log.log(`[记忆] 提取前 FactStore 行数: ${countBefore}`);
         const result = await _extractAndRemember(history, config, memoryStore);
+        const countAfter = memoryStore.count?.() ?? -1;
+        log.log(`[记忆] 提取后 FactStore 行数: ${countAfter} (新增 ${countAfter - countBefore})`);
         if (result && result.factsText) {
           sendEvent('memory_updated', {
             content: result.factsText,
@@ -593,11 +616,13 @@ async function _runAnswerPhase({
           });
           log.log(`记忆已提取(${result.interactionType}): ${result.factsText.slice(0, 120)}`);
         } else {
-          log.log('记忆提取: 本轮无新事实');
+          log.log('记忆提取: 本轮无新事实（facts为空或提取失败）');
         }
       } catch (err) {
-        log.error(`记忆提取失败: ${err.message}`);
+        log.error(`记忆提取失败: ${err.message}`, err.stack);
       }
+    } else {
+      log.log(`[记忆] 跳过提取: memoryStore=${!!memoryStore} history.length=${history.length}`);
     }
 
     return;
@@ -681,18 +706,27 @@ function hasSensitive(text) {
 }
 
 async function _extractAndRemember(messages, config, memoryStore) {
-  if (!messages || messages.length < 2) return { factsText: '', interactionType: 'casual_chat' };
+  log.log(`[记忆] _extractAndRemember 开始, messages=${messages.length}条`);
+  if (!messages || messages.length < 2) {
+    log.log('[记忆] 跳过: messages不足2条');
+    return { factsText: '', interactionType: 'casual_chat' };
+  }
 
   // 敏感信息检测
   const rawText = messages.map(m => m.content || '').join(' ');
   if (hasSensitive(rawText)) {
-    log.warn('检测到敏感信息，跳过记忆存储');
+    log.warn('[记忆] 检测到敏感信息，跳过记忆存储');
     return { factsText: '', interactionType: 'casual_chat' };
   }
 
   // 调用多维提取器（一次 LLM 调用，三个维度）
   const extractConfig = { ...config, temperature: 0.1, maxTokens: 512 };
-  const { facts, interactionType } = await extractMemories(messages, extractConfig);
+  // 获取已有事实，传给提取器避免重复提取
+  let existingFacts = [];
+  try { existingFacts = memoryStore.getAll?.() || []; } catch (e) { log.warn('[记忆] 获取已有事实失败:', e.message); }
+  log.log(`[记忆] 准备调 extractMemories, provider=${extractConfig.provider}, model=${extractConfig.model}, hasApiKey=${!!extractConfig.apiKey}, existingFacts=${existingFacts.length}条`);
+  const { facts, interactionType } = await extractMemories(messages, extractConfig, existingFacts);
+  log.log(`[记忆] extractMemories 返回: facts=${facts?.length || 0}条, interactionType=${interactionType}`);
 
   if (!facts || facts.length === 0) {
     return { factsText: '', interactionType: interactionType || 'casual_chat' };
@@ -705,41 +739,55 @@ async function _extractAndRemember(messages, config, memoryStore) {
     if (!ft || ft.length < 2) continue;
     const importance = Math.max(0, Math.min(1, f.importance || 0.5));
     const tags = f.tags || [];
-    // 将维度作为 tag 存储
     if (f.dimension) tags.push(f.dimension);
 
-    // 冲突检测：已有高置信度(>0.8)事实时，新事实不覆盖，仅追加
     let blocked = false;
     if (memoryStore.search && memoryStore.addFact) {
-      const existing = memoryStore.search(ft.slice(0, 10), 5);
+      // 用事实维度和关键词做冲突检测（不只是字符串前缀匹配）
+      const searchKey = f.dimension ? `${f.dimension} ` : '';
+      const existing = memoryStore.search(searchKey + ft.slice(0, 15), 5);
+      const factLower = ft.toLowerCase();
+      // 提取关键实体词（"称呼"、"名字"、"住在"等）
+      const topicWords = ['称呼', '名字', '叫', '住在', '喜欢', '讨厌', '工作', '职业', '过敏'];
+      const factTopic = topicWords.find(w => factLower.includes(w)) || '';
       const similar = existing.find(e => {
         const ef = (e.fact || e || '').replace(/\s/g, '');
         const nf = ft.replace(/\s/g, '');
-        return ef && nf && (ef.includes(nf.slice(0, 4)) || nf.includes(ef.slice(0, 4)));
+        // 同维度 + 同主题 → 可能冲突
+        const sameDim = f.dimension && (e.tags || []).includes(f.dimension);
+        const sameTopic = factTopic && (ef.includes(factTopic) || nf.slice(0, 4) === ef.slice(0, 4));
+        return ef && nf && (sameDim || sameTopic || ef.includes(nf.slice(0, 4)) || nf.includes(ef.slice(0, 4)));
       });
-      if (similar && (similar.confidence || 0.5) > 0.8 && importance < 0.85) {
-        // 高置信度事实被新信息冲突 → 标记但不覆盖
+      if (similar && (similar.confidence || 0.5) > 0.5 && importance < 0.95) {
         conflicts.push({ old: similar.fact || similar, new: ft, action: 'blocked' });
         blocked = true;
+        log.log(`[记忆] 冲突阻止: "${ft}" (dim=${f.dimension}) — 已有: "${similar.fact?.slice(0,40)}"`);
       }
     }
 
     if (!blocked && memoryStore.addFact) {
-      memoryStore.addFact(ft, tags, {
-        confidence: importance,
-        half_life_days: importance > 0.8 ? 365 : importance > 0.5 ? 90 : 30,
-        source: 'auto_extracted',
-        extracted_at: new Date().toISOString(),
-      });
+      try {
+        const beforeCount = memoryStore.count?.() ?? 0;
+        memoryStore.addFact(ft, tags, {
+          confidence: importance,
+          half_life_days: importance > 0.8 ? 365 : importance > 0.5 ? 90 : 30,
+          source: 'auto_extracted',
+          extracted_at: new Date().toISOString(),
+        });
+        const afterCount = memoryStore.count?.() ?? 0;
+        log.log(`[记忆] 已存储(${afterCount - beforeCount}): "${ft}" dim=${f.dimension} imp=${importance} tags=[${tags}]`);
+      } catch (e) {
+        log.error(`[记忆] addFact 失败: "${ft}" — ${e.message}`);
+      }
     }
     stored.push(ft);
   }
 
   // 反馈冲突给用户
   if (conflicts.length > 0) {
-    log.log(`冲突检测: ${conflicts.length} 条`);
+    log.log(`[记忆] 冲突检测: ${conflicts.length} 条`);
     for (const c of conflicts) {
-      log.log(`  旧: "${c.old}" ←→ 新: "${c.new}"`);
+      log.log(`[记忆]   冲突: 旧="${c.old?.slice(0,40)}" ←→ 新="${c.new?.slice(0,40)}" — ${c.action}`);
     }
     // 发送冲突事件给前端 UI
     if (_conflictCallback) {
@@ -778,6 +826,37 @@ export async function runAgent({
   // 同步修改 messages 中的最后一条用户消息，确保传入 LLM 的消息也带后缀
   if (lastUserMsg) lastUserMsg.content = userText;
   const hadImages = _hasImages(messages);
+
+  // ═══ 三模式共享注入（FD语音 + 旧语音 + 文字聊天 都走这里）═══
+
+  // 1. 共享上下文：注入来自其他模式的对话历史
+  try {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const os = await import('node:os');
+    const persistDir = process.env.AGENT_PERSIST_DIR || path.join(os.homedir(), '.ai-desktop-pet');
+    const sharedFile = path.join(persistDir, 'shared_history.json');
+    if (fs.existsSync(sharedFile)) {
+      const shared = JSON.parse(fs.readFileSync(sharedFile, 'utf-8'));
+      const voiceHistory = (shared.history || []).slice(-10);
+      if (voiceHistory.length > 0) {
+        const seen = new Set(messages.map(m => `${m.role}:${(m.content||'').slice(0,40)}`));
+        const newMsgs = voiceHistory.filter(m => !seen.has(`${m.role}:${(m.content||'').slice(0,40)}`));
+        if (newMsgs.length > 0) {
+          messages.unshift(...newMsgs);
+        }
+      }
+    }
+  } catch (e) { /* 静默，不影响主流程 */ }
+
+  // 2. 音乐意图检测：涉及音乐操作时强制注入工具调用指令
+  const musicIntentRe = /放[首首歌]|换[首首歌]|切[首首歌]|来[首首歌]|听[首首歌]|播[放首]|音乐|想听|上一首|下一首|不[想喜]听|这首歌|这歌|这首|来首/;
+  if (musicIntentRe.test(rawUserText)) {
+    messages.push({
+      role: 'system',
+      content: '[系统指令] 用户刚才的消息涉及音乐操作（播放/切歌/换歌）。你必须调用 recommend_music、play_music、search_music 或 play_similar 工具来实际执行，不能只口头回复。绝对不要只说"好的给你换了"但不调工具。先调工具拿到 NOW_PLAYING，再用一句话告诉用户结果。',
+    });
+  }
 
   // Create LLM
   let llm;

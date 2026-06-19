@@ -261,6 +261,15 @@ function mapSong(s) {
   };
 }
 
+// ── 当前播放歌曲（供 play_similar 等工具自动使用）──
+let _lastPlayedSongId = null;
+let _lastPlayedSongName = '';
+export function setLastPlayedSong(songId, name) {
+  _lastPlayedSongId = songId;
+  _lastPlayedSongName = name || '';
+}
+export function getLastPlayedSongId() { return _lastPlayedSongId; }
+
 // ── 记忆检索 ──
 let _memoryStore = null;
 export function setMusicMemoryStore(store) { _memoryStore = store; }
@@ -450,9 +459,17 @@ export const recommendMusic = {
     required: [],
   },
   async invoke({ mood, count = 10 } = {}) {
+    // ── 缓存：同场景 15s 内复用，短到刚好防重复调用但不会跨轮复用 ──
+    const cacheKey = `${mood || 'auto'}_${Math.floor(Date.now() / 15000)}`;
+    if (_recommendCache?.key === cacheKey && _recommendCache?.text && _recommendCache?.mood === mood) {
+      log.log(`recommend_music 缓存命中: ${cacheKey}`);
+      return _recommendCache.text;
+    }
+
     const cookie = loadCookie();
     log.log(`recommend_music 被调用: mood=${mood}, cookie=${cookie ? '有(' + cookie.length + '字符)' : '无'}`);
     const hour = new Date().getHours();
+    const minute = new Date().getMinutes();
     const period = timePeriod(hour);
     const scene = SCENE_DEFAULTS[period];
 
@@ -525,25 +542,28 @@ export const recommendMusic = {
 
     // ── 艺人热歌 + cloudsearch 并行获取 ──
     const topArtists = profile.topArtists?.slice(0, 3) || [];
+    const skipArtists = profile.skipArtists || {};
+    const skipGenres = profile.skipGenres || {};
     const genreKw = profile.topGenres?.slice(0, 3) || [];
-    const hourSeed = Math.floor(Date.now() / 3600000);
+    const minuteSeed = (hour * 60 + minute);  // 每分钟换种子，比小时级更多样
     const moodSearch = moodToKeywords(mood);
-    const diverseGenres = ['pop', 'rock', 'electronic', 'r&b', 'folk', 'jazz', 'indie', 'classical', 'hiphop'];
+    const diverseGenres = ['pop', 'rock', 'electronic', 'r&b', 'folk', 'jazz', 'indie', 'classical', 'hiphop', 'ambient', 'funk', 'soul'];
     const shuffledGenres = [...diverseGenres].sort(() => Math.random() - 0.5);
     const searchQueries = [
       moodSearch,
-      period === 'night' || period === 'late_night' ? '安静 慢歌 钢琴 acoustic' : '热门 新歌 流行',
-      shuffledGenres[0] + ' ' + shuffledGenres[1],
-      shuffledGenres[2] + ' ' + shuffledGenres[3],
-      ...topArtists.map(a => a.name),
+      period === 'night' || period === 'late_night' ? '安静 慢歌 钢琴 acoustic' : shuffledGenres[0] + ' 热门 新歌',
+      shuffledGenres[1] + ' ' + shuffledGenres[2],
+      shuffledGenres[3] + ' ' + shuffledGenres[4],
+      ...topArtists.map(a => a.name + ' 新歌'),
       ...genreKw,
     ].filter(Boolean);
 
-    // 构建搜索 querie 列表（去重+选5个）
+    // 随机选 5 个搜索词（用分钟种子增加变化）
     const selectedQueries = [];
     const seenq = new Set();
+    const seed = minuteSeed + Math.floor(Math.random() * 7);
     for (let si = 0; si < Math.min(5, searchQueries.length); si++) {
-      const qi = (hourSeed + si * 3) % searchQueries.length;
+      const qi = (seed + si * 3) % searchQueries.length;
       const q = searchQueries[qi];
       if (!seenq.has(q)) { seenq.add(q); selectedQueries.push({ idx: qi, q }); }
     }
@@ -578,19 +598,31 @@ export const recommendMusic = {
     await Promise.allSettled([...artistJobs, ...searchJobs]);
     log.log(`候选池: ${candidates.length} 首 (daily/fm/liked/toplist/new/personalized/artist_top/search)`);
 
-    // 3. 排除最近播放过的（防重复）
+    // 3. 排除最近播放过的 + 不喜欢的艺人（防重复 + 防踩雷）
     const recentPlayedSet = getRecentPlayedSet();
-    const fresh = candidates.filter(s => !recentPlayedSet.has(s.id));
-    if (fresh.length < 3) {
-      // 候选太少时只排除最近 3 首
-      const recent3 = getRecentPlayed(3);
-      const ok = candidates.filter(s => !recent3.includes(s.id));
-      if (ok.length >= 3) { fresh.length = 0; fresh.push(...ok); }
+    let fresh = candidates.filter(s => {
+      if (recentPlayedSet.has(s.id)) return false;
+      // 排除明确不喜欢的艺人
+      const primary = s.artist.split(' / ')[0];
+      if (skipArtists[primary] && skipArtists[primary] < -0.3) return false;
+      return true;
+    });
+    if (fresh.length < 5) {
+      // 候选太少时只排除最近 5 首
+      const recent5 = getRecentPlayed(5);
+      fresh = candidates.filter(s => !recent5.includes(s.id));
     }
 
-    // 4. 评分 + 更强的随机扰动 + 排序
+    // 4. 评分 + 更强随机扰动（0.5 而不是 0.3）+ 不喜欢艺人/流派扣分
     const scored = (fresh.length >= 3 ? fresh : candidates)
-      .map(s => ({ ...s, _score: scoreSong(s, profile, scene, mood) + Math.random() * 0.3 }))
+      .map(s => {
+        let penalty = 0;
+        const primary = s.artist.split(' / ')[0];
+        const sGenres = (s.genres || '').split(' ');
+        if (skipArtists[primary]) penalty += Math.abs(skipArtists[primary]) * 2;
+        for (const g of sGenres) { if (skipGenres[g]) penalty += Math.abs(skipGenres[g]); }
+        return { ...s, _score: scoreSong(s, profile, scene, mood) + Math.random() * 0.5 - penalty };
+      })
       .sort((a, b) => b._score - a._score);
 
     // 5. 多样性过滤：同艺人 ≤ 2 首
@@ -602,8 +634,8 @@ export const recommendMusic = {
       if (artistCount[primaryArtist] <= 2) filtered.push(s);
     }
 
-    // 6. 取前 N 首，随机打乱前 5 避免每次一样
-    const pool = filtered.slice(0, Math.min(count + 5, 15));
+    // 6. 取前 N 首，洗牌避免每次一样
+    const pool = filtered.slice(0, Math.min(count + 8, 20));
     shuffleArray(pool);
     const top = pool.slice(0, Math.min(count, 10));
 
@@ -617,8 +649,35 @@ export const recommendMusic = {
       `[${i + 1}] songId="${s.id}" songName="${s.name}" artist="${s.artist}"`
     );
     const playlistJson = JSON.stringify(best.map(s => ({ songId: s.id, name: s.name, artist: s.artist, cover: s.cover || '' })));
-    const np = `NOW_PLAYING {"songId":"${best[0].id}","name":"${(best[0].name||'').replace(/"/g,'\\"')}","artist":"${(best[0].artist||'').replace(/"/g,'\\"')}","cover":"${(best[0].cover||'').replace(/"/g,'\\"')}","reason":"${(reason||'为你播放').replace(/"/g,'\\"')}"}`;
-    return `${reason}，正在为你播放 ${best[0].name}\n\n${lines.join('\n')}\n\n${np}\nMUSIC_LIST ${playlistJson}`;
+
+    // 预取第一首歌的 URL（并行，不阻塞返回）
+    const preFetchUrl = (async () => {
+      try {
+        const [urlStd, urlHigh] = await Promise.allSettled([
+          callNetease('song_url_v1', { id: String(best[0].id), level: 'standard' }),
+          callNetease('song_url_v1', { id: String(best[0].id), level: 'higher' }),
+        ]);
+        const url = (urlStd.status === 'fulfilled' && urlStd.value?.data?.[0]?.url)
+          || (urlHigh.status === 'fulfilled' && urlHigh.value?.data?.[0]?.url) || '';
+        return url;
+      } catch { return ''; }
+    })();
+
+    // 先生成不带 URL 的结果快速返回，URL 拿到后再补发
+    const npNoUrl = `NOW_PLAYING {"songId":"${best[0].id}","name":"${(best[0].name||'').replace(/"/g,'\\"')}","artist":"${(best[0].artist||'').replace(/"/g,'\\"')}","cover":"${(best[0].cover||'').replace(/"/g,'\\"')}","reason":"${(reason||'为你播放').replace(/"/g,'\\"')}"}`;
+    const result = `${reason}，正在为你播放 ${best[0].name}\n\n${lines.join('\n')}\n\n${npNoUrl}\nMUSIC_LIST ${playlistJson}`;
+    _recommendCache = { key: cacheKey, text: result, mood };
+
+    // 后台补发带 URL 的 NOW_PLAYING（让前端直接播放，不等 play_music 再取 URL）
+    preFetchUrl.then(url => {
+      if (url) {
+        const npWithUrl = `NOW_PLAYING {"songId":"${best[0].id}","name":"${(best[0].name||'').replace(/"/g,'\\"')}","artist":"${(best[0].artist||'').replace(/"/g,'\\"')}","cover":"${(best[0].cover||'').replace(/"/g,'\\"')}","url":"${url.replace(/"/g,'\\"')}","reason":"${(reason||'为你播放').replace(/"/g,'\\"')}"}`;
+        _recommendCache = { key: cacheKey, text: result.replace(npNoUrl, npWithUrl), mood };
+        log.log(`recommend_music URL 预取完成: ${best[0].name}`);
+      }
+    }).catch(() => {});
+
+    return result;
   },
 };
 
@@ -642,25 +701,32 @@ export const playMusic = {
   async invoke({ songId, songName, artist, reason }) {
     log.log(`play_music 被调用: ${songName} (ID: ${songId}), reason: ${reason}`);
     markAsPlayed(String(songId));
-    // 验证歌曲可播放
-    const urlBody = await callNetease('song_url_v1', { id: String(songId), level: 'standard' });
-    const playable = urlBody?.data?.[0]?.url;
-    log.log(`song_url_v1 (standard): ${playable ? '有URL' : '无URL'}, data count: ${urlBody?.data?.length || 0}`);
+    const sid = String(songId);
 
-    if (!playable) {
-      const urlBodyHigh = await callNetease('song_url_v1', { id: String(songId), level: 'higher' });
-      const playableHigh = urlBodyHigh?.data?.[0]?.url;
-      log.log(`song_url_v1 (higher): ${playableHigh ? '有URL' : '无URL'}`);
-      if (!playableHigh) {
-        log.warn(`歌曲无播放源: ${songName} (${songId})`);
-        return `该歌曲暂无播放源（ID: ${songId}）。请从 recommend_music 结果中另选一首可用歌曲再试。`;
-      }
+    // 并行：同时取 standard/higher URL + 歌曲详情
+    const [urlStd, urlHigh, detail] = await Promise.allSettled([
+      callNetease('song_url_v1', { id: sid, level: 'standard' }),
+      callNetease('song_url_v1', { id: sid, level: 'higher' }),
+      callNetease('song_detail', { ids: sid }),
+    ]);
+
+    let playUrl = '';
+    const stdOk = urlStd.status === 'fulfilled' && urlStd.value?.data?.[0]?.url;
+    const highOk = urlHigh.status === 'fulfilled' && urlHigh.value?.data?.[0]?.url;
+    playUrl = stdOk || highOk || '';
+    log.log(`song_url (并行): standard=${!!stdOk} higher=${!!highOk}`);
+
+    if (!playUrl) {
+      log.warn(`歌曲无播放源: ${songName} (${songId})`);
+      return `该歌曲暂无播放源（ID: ${songId}）。请从 recommend_music 结果中另选一首可用歌曲再试。`;
     }
 
-    const detail = await callNetease('song_detail', { ids: String(songId) });
-    const s = detail?.songs?.[0] ? mapSong(detail.songs[0]) : { id: songId, name: songName, artist: artist || '', cover: '' };
-    const np = `NOW_PLAYING {"songId":"${s.id}","name":"${(s.name || '').replace(/"/g, '\\"')}","artist":"${(s.artist || '').replace(/"/g, '\\"')}","cover":"${(s.cover || '').replace(/"/g, '\\"')}","reason":"${(reason || '为你播放').replace(/"/g, '\\"')}"}`;
-    log.log(`play_music 返回: ${np.slice(0, 80)}...`);
+    const s = detail.status === 'fulfilled' && detail.value?.songs?.[0]
+      ? mapSong(detail.value.songs[0])
+      : { id: songId, name: songName, artist: artist || '', cover: '' };
+    const urlPart = playUrl ? `"url":"${playUrl.replace(/"/g,'\\"')}",` : '';
+    const np = `NOW_PLAYING {"songId":"${s.id}","name":"${(s.name || '').replace(/"/g, '\\"')}","artist":"${(s.artist || '').replace(/"/g, '\\"')}","cover":"${(s.cover || '').replace(/"/g, '\\"')}",${urlPart}"reason":"${(reason || '为你播放').replace(/"/g, '\\"')}"}`;
+    log.log(`play_music 返回: ${np.slice(0, 120)}...`);
     return np;
   },
 };
@@ -677,7 +743,17 @@ export const playSimilar = {
     required: ['songId'],
   },
   async invoke({ songId }) {
-    log.log(`play_similar 被调用: songId=${songId}`);
+    log.log(`play_similar 被调用: songId="${songId}"`);
+    // 验证 songId：必须是纯数字，否则尝试用 lastPlayedSongId 兜底
+    if (!/^\d+$/.test(String(songId || ''))) {
+      log.warn(`play_similar 收到无效 songId: "${songId}"，尝试使用上次播放歌曲`);
+      if (_lastPlayedSongId && /^\d+$/.test(String(_lastPlayedSongId))) {
+        log.log(`play_similar 自动修正: "${songId}" → "${_lastPlayedSongId}" (${_lastPlayedSongName})`);
+        songId = _lastPlayedSongId;
+      } else {
+        return `无法获取当前歌曲 ID（收到的是"${songId}"，不是有效数字）。请先播放一首歌，或使用 recommend_music 获取新推荐。`;
+      }
+    }
     try {
       // 心动模式 API，以当前歌曲为种子
       const result = await callNetease('playmode_intelligence_list', {

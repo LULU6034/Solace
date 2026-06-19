@@ -36,9 +36,9 @@
   --bg-input:        rgba(0, 0, 0, 0.03);
   --bg-sidebar:      rgba(232, 234, 248, 0.6);
   --bg-sidebar-hover: rgba(88, 104, 240, 0.06);
-  --border:          rgba(0, 0, 0, 0.06);
-  --border-weak:     rgba(0, 0, 0, 0.04);
-  --border-strong:   rgba(0, 0, 0, 0.10);
+  --border:          rgba(0, 0, 0, 0.08);
+  --border-weak:     rgba(0, 0, 0, 0.06);
+  --border-strong:   rgba(0, 0, 0, 0.12);
   --bubble-user:     rgba(88, 104, 240, 0.06);
   --bubble-ai:       var(--color-surface-1);
 
@@ -107,20 +107,21 @@
   --space-xs: 4px; --space-sm: 8px; --space-md: 16px;
   --space-lg: 24px; --space-xl: 32px; --space-2xl: 48px;
 
-  /* Radius — rounder */
-  --radius-sm:  10px; --radius-md:  16px;
-  --radius-lg:  20px; --radius-xl:  28px;
+  /* Radius — tighter, more refined */
+  --radius-sm:  6px; --radius-md:  10px;
+  --radius-lg:  14px; --radius-xl:  20px;
 
   /* Border */
-  --hairline:      1px solid rgba(0, 0, 0, 0.05);
-  --hairline-glow: 1px solid rgba(88, 104, 240, 0.18);
+  --hairline:      1px solid rgba(0, 0, 0, 0.08);
+  --hairline-glow: 1px solid rgba(88, 104, 240, 0.2);
 
   /* Animation */
   --ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-out:      cubic-bezier(0.16, 1, 0.3, 1);
-  --duration-fast:  0.2s;
-  --duration-normal: 0.35s;
-  --duration-slow:   0.5s;
+  --ease-btn:      cubic-bezier(0.22, 0.61, 0.36, 1);
+  --duration-fast:  0.12s;
+  --duration-normal: 0.2s;
+  --duration-slow:   0.35s;
   --duration-spring: 0.5s;
   --dur-fast: var(--duration-fast);
   --dur-normal: var(--duration-normal);

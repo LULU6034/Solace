@@ -257,3 +257,41 @@ let removeFF=null
 onMounted(async()=>{try{const r=await window.electronAPI?.agentList();allAgents.value=r?.data?.agents||r?.agents||[]}catch{allAgents.value=[]};removeFF=window.electronAPI?.onFileFed?.(d=>{const dn=d.name||'未知文件';const c=conv.value;c.messages.push({role:'user',content:`📎 喂食了文件: ${dn}`,timestamp:new Date()});c.history.push({role:'user',content:`📎 喂食了文件: ${dn}`})});nextTick(()=>{setupScrollObserver();animateWelcome()})})
 onUnmounted(()=>{removeFF?.();stopSpeech();if(elapsedTimer)clearInterval(elapsedTimer);if(scrollObserver)scrollObserver.disconnect();if(activeAbortController){activeAbortController.abort();activeAbortController=null}})
 </script>
+
+<style scoped>
+/* ═══ 群聊专属视觉 ═══ */
+.collab-progress {
+  background: var(--bg-sidebar);
+  border-left: 3px solid var(--accent);
+}
+
+.plan-confirm-card {
+  background: var(--bg-card);
+  border-color: var(--border-strong);
+  box-shadow: 0 2px 16px rgba(0,0,0,0.06);
+}
+
+.plan-confirm-header span:first-child {
+  font-size: 13px; font-weight: 700; color: var(--accent);
+  letter-spacing: 0.02em;
+}
+
+.collab-step.running .collab-step-dot {
+  box-shadow: 0 0 8px var(--accent);
+}
+
+/* 成员标签微调 */
+:deep(.group-member-item) {
+  border: 1px solid var(--border);
+  transition: all 0.2s var(--ease-out);
+}
+:deep(.group-member-item:hover) {
+  border-color: var(--border-strong);
+  background: var(--bg-sidebar-hover);
+}
+
+/* 群聊模式标识 */
+.group-mode-badge {
+  font-size: 11px; padding: 3px 10px;
+}
+</style>

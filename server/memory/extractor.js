@@ -127,8 +127,10 @@ function parseJSONResponse(rawText) {
  * @param {Object} llmConfig - LLM 配置对象，包含 provider/apiKey/model 等
  * @returns {Promise<{facts: Array<{text:string, importance:number, dimension:string}>, interactionType: string}>}
  */
-export async function extractMemories(messages, llmConfig) {
+export async function extractMemories(messages, llmConfig, existingFacts = []) {
+  log.log(`[extractor] extractMemories 入口, messages=${messages?.length || 0}条, existingFacts=${existingFacts.length}条, provider=${llmConfig?.provider}, model=${llmConfig?.model}`);
   if (!messages || messages.length < 2) {
+    log.log('[extractor] 跳过: messages不足2条');
     return { facts: [], interactionType: 'casual_chat' };
   }
 
@@ -137,7 +139,14 @@ export async function extractMemories(messages, llmConfig) {
     .map(m => `${m.role}: ${(m.content || '').slice(0, 500)}`)
     .join('\n');
 
-  const prompt = `${EXTRACTION_PROMPT}\n\n## 对话内容\n\n${conversationText}\n\n## 提取结果\n`;
+  // 注入已有事实上下文，避免重复提取
+  let knownFactsBlock = '';
+  if (existingFacts.length > 0) {
+    const factsList = existingFacts.slice(0, 30).map(f => `- ${f.fact || f}`).join('\n');
+    knownFactsBlock = `\n## 已知事实（以下事实已经存在，不要重复提取，除非新信息与之冲突需要更新）\n\n${factsList}\n`;
+  }
+
+  const prompt = `${EXTRACTION_PROMPT}\n${knownFactsBlock}\n## 对话内容\n\n${conversationText}\n\n## 提取结果\n`;
 
   let llm;
   try {
@@ -145,26 +154,28 @@ export async function extractMemories(messages, llmConfig) {
       ...llmConfig,
       temperature: llmConfig.temperature ?? 0.1,
       maxTokens: llmConfig.maxTokens ?? 512,
-      // 提取任务不需要推理链
       thinkingType: 'disabled',
     });
+    log.log(`[extractor] LLM创建成功`);
   } catch (err) {
-    log.error(`创建提取 LLM 失败: ${err.message}`);
+    log.error(`[extractor] 创建LLM失败: ${err.message}`, err.stack);
     return { facts: [], interactionType: 'casual_chat' };
   }
 
   try {
+    log.log(`[extractor] 发送提取请求, provider=${llmConfig.provider} model=${llmConfig.model} msgs=${messages.length} promptLen=${prompt.length}`);
     const { content } = await llm.invoke([{ role: 'user', content: prompt }]);
     const text = content?.trim() || '';
-    log.log(`LLM 提取原文本(${text.length}字符): "${text.slice(0, 200)}"`);
+    log.log(`[extractor] LLM响应(${text.length}字符): "${text.slice(0, 200)}"`);
 
     if (!text || text === '无') {
+      log.log('[extractor] 空响应(文本为空或"无")，返回空facts');
       return { facts: [], interactionType: 'casual_chat' };
     }
 
     const parsed = parseJSONResponse(text);
     if (!parsed) {
-      log.warn('提取结果解析失败，返回空');
+      log.warn(`[extractor] JSON解析失败, 原文本前200字符: "${text.slice(0, 200)}"`);
       return { facts: [], interactionType: 'casual_chat' };
     }
 
@@ -186,10 +197,13 @@ export async function extractMemories(messages, llmConfig) {
       ? parsed.interactionType
       : 'casual_chat';
 
-    log.log(`提取完成: ${facts.length} 条事实, 交互类型=${interactionType}`);
+    log.log(`[extractor] 提取完成: ${facts.length}条事实, 交互类型=${interactionType}`);
+    if (facts.length > 0) {
+      facts.forEach((f, i) => log.log(`[extractor]   fact #${i+1}: "${f.text}" importance=${f.importance} dim=${f.dimension}`));
+    }
     return { facts, interactionType };
   } catch (err) {
-    log.error(`extractMemories 失败: ${err.message}`);
+    log.error(`[extractor] extractMemories 异常: ${err.message}`, err.stack);
     return { facts: [], interactionType: 'casual_chat' };
   }
 }

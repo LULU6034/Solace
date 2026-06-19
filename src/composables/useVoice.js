@@ -659,7 +659,7 @@ export function useVoice() {
     // 长文本会导致 CosyVoice 模型加速，根据长度微调 speed 抵消
     const t = text.trim()
     const len = t.length
-    const adjustedSpeed = len > 300 ? speed * 0.78 : len > 150 ? speed * 0.88 : len > 80 ? speed * 0.94 : len > 50 ? speed * 0.97 : speed
+    const adjustedSpeed = len > 300 ? speed * 0.85 : len > 150 ? speed * 0.88 : len > 80 ? speed * 0.92 : len > 50 ? speed * 0.94 : speed * 0.90
     return new Promise(resolve => {
       _cvQueue.push({ text: t, emotion, speed: Math.round(adjustedSpeed * 100) / 100, resolve })
       _processCvQueue()

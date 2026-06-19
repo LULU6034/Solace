@@ -99,9 +99,8 @@ let healthInterval = setInterval(async () => {
 ;(async () => { try { const r = await window.electronAPI?.agentPing(); agentOnline.value = !!r?.ready } catch {} })()
 
 // ── Lifecycle ──
-let unsubMax
+let unsubMax, _darkMediaQuery, _darkChangeHandler
 onMounted(async () => {
-  // 窗口最大化状态监听
   unsubMax = window.electronAPI?.onWindowMaximizedChange(({ maximized }) => {
     document.body.classList.toggle('window-maximized', maximized)
   })
@@ -109,11 +108,13 @@ onMounted(async () => {
   const theme = localStorage.getItem('app-theme') || 'system'
   const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
   document.documentElement.classList.toggle('dark', theme === 'dark' || (theme === 'system' && prefersDark))
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  _darkMediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+  _darkChangeHandler = () => {
     if ((localStorage.getItem('app-theme') || 'system') === 'system') {
-      document.documentElement.classList.toggle('dark', window.matchMedia('(prefers-color-scheme: dark)').matches)
+      document.documentElement.classList.toggle('dark', _darkMediaQuery.matches)
     }
-  })
+  }
+  _darkMediaQuery.addEventListener('change', _darkChangeHandler)
   // 配置恢复
   let savedConfig = await window.electronAPI?.loadConfig()
   if (!savedConfig) {
@@ -127,6 +128,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   unsubMax?.()
+  if (_darkMediaQuery && _darkChangeHandler) _darkMediaQuery.removeEventListener('change', _darkChangeHandler)
   clearInterval(healthInterval)
 })
 </script>

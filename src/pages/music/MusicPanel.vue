@@ -579,17 +579,19 @@ onUnmounted(() => {
 
 /* ── 登录引导 ── */
 .login-hero {
-  text-align: center; padding: 28px 24px; border-radius: 12px;
-  border: 1px solid var(--border); background: var(--bg-card);
+  text-align: center; padding: 32px 24px; border-radius: 12px;
+  border: 1px solid var(--border-strong);
+  background: linear-gradient(180deg, var(--bg-card) 0%, var(--bg-sidebar) 100%);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.04);
 }
-.login-hero-icon { font-size: 40px; color: var(--text-muted); margin-bottom: 10px; }
+.login-hero-icon { font-size: 48px; color: var(--accent); margin-bottom: 12px; opacity: 0.5; }
 .login-hero-text { font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
-.login-hero-desc { font-size: 12px; color: var(--text-muted); margin: 4px 0 14px; }
+.login-hero-desc { font-size: 12px; color: var(--text-muted); margin: 4px 0 16px; }
 .login-hero-btn {
-  padding: 10px 28px; border-radius: 10px; border: none;
+  padding: 10px 28px; border-radius: var(--radius-md); border: none;
   background: linear-gradient(135deg, #EC4141, #D32F2F);
   color: #fff; cursor: pointer; font-size: 13.5px; font-weight: 500;
-  font-family: inherit; transition: all 0.2s cubic-bezier(.16,1,.3,1);
+  font-family: inherit; transition: all var(--duration-normal) var(--ease-btn);
   box-shadow: 0 2px 8px rgba(236,65,65,0.2);
 }
 .login-hero-btn:hover { transform: translateY(-1px); filter: brightness(1.08); box-shadow: 0 4px 14px rgba(236,65,65,0.3); }
@@ -604,16 +606,16 @@ onUnmounted(() => {
 .login-hero a:hover { text-decoration: underline; }
 .cookie-input-row { margin-top: 8px; display: flex; gap: 6px; }
 .cookie-input {
-  flex: 1; padding: 8px 12px; border-radius: 8px;
+  flex: 1; padding: 8px 12px; border-radius: var(--radius-sm);
   border: 1.5px solid var(--border); background: var(--bg-input);
   color: var(--text-primary); font-size: 12.5px; font-family: inherit; outline: none;
   transition: border-color 0.2s;
 }
 .cookie-input:focus { border-color: var(--accent); }
 .cookie-btn {
-  padding: 8px 16px; border-radius: 8px; background: var(--accent); color: #fff;
+  padding: 8px 16px; border-radius: var(--radius-sm); background: var(--accent); color: #fff;
   border: none; font-size: 12.5px; font-weight: 600; font-family: inherit;
-  cursor: pointer; transition: all 0.2s;
+  cursor: pointer; transition: all var(--duration-normal) var(--ease-btn);
 }
 .cookie-btn:hover { filter: brightness(1.1); }
 .cookie-btn:disabled { opacity: 0.4; cursor: default; filter: none; }
@@ -634,9 +636,9 @@ onUnmounted(() => {
 .user-info-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
 .user-info-stats { font-size: 11px; color: var(--text-muted); display: flex; gap: 5px; margin-top: 3px; }
 .user-info-logout {
-  padding: 5px 14px; border-radius: 8px; border: 1.5px solid var(--border);
+  padding: 5px 14px; border-radius: var(--radius-sm); border: 1.5px solid var(--border);
   background: none; color: var(--text-muted); cursor: pointer; font-size: 11.5px;
-  font-family: inherit; font-weight: 500; transition: all 0.2s;
+  font-family: inherit; font-weight: 500; transition: all var(--duration-normal) var(--ease-btn);
 }
 .user-info-logout:hover { border-color: #EC4141; color: #EC4141; background: rgba(236,65,65,0.05); }
 
@@ -644,7 +646,7 @@ onUnmounted(() => {
 .search-section { display: flex; flex-direction: column; gap: 10px; }
 .search-row { display: flex; gap: 8px; }
 .search-input {
-  flex: 1; padding: 10px 14px; border-radius: 10px;
+  flex: 1; padding: 10px 14px; border-radius: var(--radius-md);
   border: 1.5px solid var(--border); background: var(--bg-input);
   color: var(--text-primary); font-size: 13px; font-family: inherit; outline: none;
   transition: border-color 0.2s;
@@ -652,10 +654,10 @@ onUnmounted(() => {
 .search-input:hover { border-color: var(--border-strong); }
 .search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .search-btn {
-  padding: 10px 20px; border-radius: 10px; border: none;
+  padding: 10px 20px; border-radius: var(--radius-md); border: none;
   background: var(--accent); color: #fff; cursor: pointer;
   font-size: 13px; font-weight: 600; font-family: inherit;
-  transition: all 0.2s cubic-bezier(.16,1,.3,1);
+  transition: all var(--duration-normal) var(--ease-btn);
 }
 .search-btn:hover { filter: brightness(1.1); box-shadow: 0 2px 8px rgba(109,124,255,0.2); }
 .search-btn:disabled { opacity: 0.35; cursor: default; filter: none; box-shadow: none; }
@@ -671,12 +673,12 @@ onUnmounted(() => {
   padding: 4px 12px; border-radius: 6px; border: 1.5px solid var(--border);
   background: none; color: var(--text-secondary); cursor: pointer;
   font-size: 11px; font-weight: 500; font-family: inherit;
-  transition: all 0.2s;
+  transition: all var(--duration-normal) var(--ease-btn);
 }
 .results-playall:hover { border-color: var(--accent); color: var(--accent); }
 .result-item {
   display: flex; align-items: center; gap: 10px; padding: 7px 8px;
-  border-radius: 8px; cursor: pointer; transition: background 0.15s;
+  border-radius: var(--radius-sm); cursor: pointer; transition: background 0.15s;
 }
 .result-item:hover { background: var(--bg-sidebar-hover); }
 .result-idx { width: 22px; text-align: center; font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
@@ -693,7 +695,7 @@ onUnmounted(() => {
   width: 28px; height: 28px; border-radius: 50%; border: none;
   background: var(--accent-soft); color: var(--accent); cursor: pointer;
   font-size: 10px; display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0; font-weight: 600; transition: all 0.2s;
+  flex-shrink: 0; font-weight: 600; transition: all var(--duration-normal) var(--ease-btn);
 }
 .result-play:hover { background: var(--accent); color: #fff; }
 .search-empty { text-align: center; font-size: 12.5px; color: var(--text-muted); padding: 24px 0; }
@@ -704,17 +706,17 @@ onUnmounted(() => {
   display: flex; align-items: center; justify-content: space-between;
 }
 .section-title-mt { margin-top: 16px; }
-.playlist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; }
+.playlist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
 .playlist-card {
   display: flex; flex-direction: column; align-items: center; gap: 6px;
-  padding: 12px 8px; border-radius: 10px; border: 1.5px solid var(--border);
-  background: var(--bg-card); cursor: pointer; transition: all 0.2s;
+  padding: 12px 8px; border-radius: var(--radius-md); border: 1.5px solid var(--border);
+  background: var(--bg-card); cursor: pointer; transition: all var(--duration-normal) var(--ease-btn);
 }
 .playlist-card:hover {
   border-color: var(--border-strong); background: var(--bg-sidebar-hover);
   transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.05);
 }
-.pl-card-cover { width: 64px; height: 64px; border-radius: 8px; object-fit: cover; }
+.pl-card-cover { width: 64px; height: 64px; border-radius: var(--radius-sm); object-fit: cover; }
 .pl-card-cover-empty {
   display: flex; align-items: center; justify-content: center;
   background: var(--accent-soft); color: var(--text-muted); font-size: 20px;
@@ -726,8 +728,8 @@ onUnmounted(() => {
 .quick-actions { display: flex; flex-direction: column; gap: 8px; }
 .quick-btn {
   display: flex; align-items: center; gap: 10px; padding: 12px 14px;
-  border-radius: 10px; border: 1.5px solid var(--border); background: var(--bg-card);
-  cursor: pointer; transition: all 0.2s cubic-bezier(.16,1,.3,1);
+  border-radius: var(--radius-md); border: 1.5px solid var(--border); background: var(--bg-card);
+  cursor: pointer; transition: all var(--duration-normal) var(--ease-btn);
   text-align: left; font-family: inherit;
 }
 .quick-btn:hover {
@@ -742,38 +744,38 @@ onUnmounted(() => {
 /* ── 当前播放 ── */
 .now-playing-bar {
   display: flex; align-items: center; gap: 10px; padding: 10px 14px;
-  border-radius: 10px; background: var(--bg-sidebar); border: 1px solid var(--border);
+  border-radius: var(--radius-md); background: var(--bg-sidebar); border: 1px solid var(--border);
   margin-top: auto;
 }
-.np-cover { width: 32px; height: 32px; border-radius: 6px; object-fit: cover; }
+.np-cover { width: 40px; height: 40px; border-radius: var(--radius-sm); object-fit: cover; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
 .np-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.np-name { font-size: 12px; font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.np-artist { font-size: 10px; color: var(--text-muted); }
+.np-name { font-size: 13px; font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-artist { font-size: 11px; color: var(--text-muted); }
 .np-ctrl {
   width: 32px; height: 32px; border-radius: 50%; border: none;
   background: var(--accent-soft); color: var(--accent); cursor: pointer;
   font-size: 12px; display: flex; align-items: center; justify-content: center;
-  transition: all 0.2s;
+  transition: all var(--duration-normal) var(--ease-btn);
 }
 .np-ctrl:hover { background: var(--accent); color: #fff; }
 
 /* ── QR 弹窗 ── */
-.qr-overlay { position: fixed; inset: 0; z-index: 1100; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; }
-.qr-box { background: var(--bg); border: 1px solid var(--border); border-radius: 16px; padding: 28px; text-align: center; min-width: 240px; }
+.qr-overlay { position: fixed; inset: 0; z-index: 1100; background: rgba(0,0,0,0.35); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; }
+.qr-box { background: rgba(255,255,255,0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid var(--border-strong); border-radius: 16px; padding: 28px; text-align: center; min-width: 240px; box-shadow: 0 16px 48px rgba(0,0,0,0.15); }
 .qr-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; font-size: 14px; font-weight: 600; color: var(--text-primary); }
-.qr-close { border: none; background: none; color: var(--text-muted); cursor: pointer; font-size: 16px; padding: 4px; border-radius: 4px; }
-.qr-close:hover { color: var(--text-primary); }
-.qr-img { width: 180px; height: 180px; border-radius: 10px; }
+.qr-close { border: none; background: none; color: var(--text-muted); cursor: pointer; font-size: 16px; padding: 4px; border-radius: var(--radius-sm); transition: all var(--duration-fast) var(--ease-btn); }
+.qr-close:hover { color: var(--text-primary); background: var(--bg-sidebar-hover); }
+.qr-img { width: 180px; height: 180px; border-radius: var(--radius-md); }
 .qr-loading { width: 180px; height: 180px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 12px; }
 .qr-hint { margin-top: 12px; font-size: 12px; color: var(--text-muted); }
-.qr-refresh { margin-top: 10px; padding: 6px 18px; border-radius: 8px; border: 1.5px solid var(--border); background: var(--bg-card); color: var(--text-secondary); cursor: pointer; font-size: 12px; font-family: inherit; font-weight: 500; transition: all 0.2s; }
+.qr-refresh { margin-top: 10px; padding: 6px 18px; border-radius: var(--radius-sm); border: 1.5px solid var(--border); background: var(--bg-card); color: var(--text-secondary); cursor: pointer; font-size: 12px; font-family: inherit; font-weight: 500; transition: all var(--duration-normal) var(--ease-btn); }
 .qr-refresh:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ── 歌单列表 ── */
 .playlist-list { display: flex; flex-direction: column; gap: 3px; }
 .playlist-item {
   display: flex; align-items: center; gap: 10px; padding: 8px 10px;
-  border-radius: 10px; cursor: pointer; transition: all 0.18s;
+  border-radius: var(--radius-md); cursor: pointer; transition: all var(--duration-normal) var(--ease-btn);
 }
 .playlist-item:hover { background: var(--bg-sidebar-hover); }
 .playlist-item.playing { background: var(--accent-soft); }
@@ -800,16 +802,16 @@ onUnmounted(() => {
   width: 28px; height: 28px; border-radius: 50%; border: none;
   background: transparent; cursor: pointer; font-size: 12px;
   display: flex; align-items: center; justify-content: center;
-  color: var(--text-muted); transition: all 0.18s; flex-shrink: 0;
+  color: var(--text-muted); transition: all var(--duration-normal) var(--ease-btn); flex-shrink: 0;
 }
 .playlist-item.playing .playlist-play { color: var(--accent); }
 .playlist-play:hover { background: var(--accent-soft); color: var(--accent); }
 .playlist-remove:hover { background: rgba(239,68,68,0.08); color: var(--danger); }
 .playlist-empty { text-align: center; font-size: 12px; color: var(--text-muted); padding: 20px 0; }
 .playlist-clear {
-  font-size: 11px; font-weight: 500; border: 1.5px solid var(--border); border-radius: 8px;
+  font-size: 11px; font-weight: 500; border: 1.5px solid var(--border); border-radius: var(--radius-sm);
   background: none; color: var(--text-muted); cursor: pointer; padding: 3px 10px;
-  font-family: inherit; transition: all 0.2s;
+  font-family: inherit; transition: all var(--duration-normal) var(--ease-btn);
 }
 .playlist-clear:hover { color: var(--danger); border-color: var(--danger); }
 

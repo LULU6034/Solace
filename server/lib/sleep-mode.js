@@ -68,7 +68,7 @@ export class SleepMode {
         const n = fs.decayAll();
         if (n > 0) log.log(`记忆衰减: ${n} 条更新`);
       }
-    } catch (e) {}
+    } catch (e) { log.warn('记忆衰减执行失败:', e.message); }
     if (!this.shouldRun()) return null;
     this.running = true;
     this.todayCount++;

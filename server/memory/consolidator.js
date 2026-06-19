@@ -84,13 +84,15 @@ export class MemoryConsolidator {
    */
   async afterTurn() {
     this.turnCount++;
+    log.log(`[consolidator] afterTurn #${this.turnCount} (每${this.runInterval}轮执行一次)`);
     if (this.turnCount % this.runInterval !== 0) return false;
-    if (this._running) return false; // 上一轮巩固尚未完成，跳过
+    if (this._running) { log.log('[consolidator] 上一轮巩固尚未完成，跳过'); return false; }
     this._running = true;
-    // 切到下一轮事件循环，避免阻塞当前对话响应
     await new Promise(resolve => { setImmediate(resolve); });
     try {
+      log.log(`[consolidator] 开始巩固, 当前事实数: ${this._getAllFacts().length}`);
       await this.consolidate();
+      log.log(`[consolidator] 巩固完成, 当前事实数: ${this._getAllFacts().length}`);
       return true;
     } finally {
       this._running = false;

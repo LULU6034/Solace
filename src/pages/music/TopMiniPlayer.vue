@@ -256,6 +256,17 @@ function onVolume(e) {
 }
 
 // ── 事件处理 ──
+function rebindAudio() {
+  stopTick()
+  startTick()
+  const a = getAudio()
+  isPlaying.value = a && a.src && !a.paused
+  if (a && a.src) {
+    currentTime.value = a.currentTime || 0
+    duration.value = a.duration || 0
+  }
+}
+
 function onNowPlaying(e) {
   const { songId, name, artist, cover: c } = e.detail || {}
   if (!songId || !name) return
@@ -275,7 +286,11 @@ function onNowPlaying(e) {
     queueIndex.value = queue.value.length - 1
   }
 
-  nextTick(() => checkNameOverflow())
+  // 音乐来自外部（FD/语音）时，重新绑定 Audio 事件
+  nextTick(() => {
+    rebindAudio()
+    checkNameOverflow()
+  })
 }
 
 // 歌单追加事件（不立即播放）
@@ -383,7 +398,7 @@ onUnmounted(() => {
   70%{transform:translateX(calc(-100% + 120px))} 100%{transform:translateX(calc(-100% + 120px))}
 }
 .mp-artist {
-  font-size: 9px; color: rgba(148,152,168,0.5); font-weight: 450;
+  font-size: 10px; color: rgba(148,152,168,0.55); font-weight: 450;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
@@ -408,17 +423,17 @@ onUnmounted(() => {
   cursor: pointer; display: flex; align-items: center; justify-content: center;
   transition: all 0.2s cubic-bezier(0.2,0.9,0.4,1.1);
 }
-.mp-btn:hover { background: rgba(109,124,255,0.1); color: #c0c4d0; }
+.mp-btn:hover { background: rgba(109,124,255,0.1); color: var(--accent); }
 .mp-btn:active { transform: scale(0.92); }
 .mp-btn:disabled { opacity: 0.25; cursor: default; pointer-events: none; }
 .mp-btn.play {
-  width: 30px; height: 30px; background: rgba(109,124,255,0.15); color: #c0c4d0;
+  width: 30px; height: 30px; background: rgba(109,124,255,0.15); color: var(--accent);
   box-shadow: 0 2px 6px rgba(0,0,0,0.15);
 }
 .mp-btn.play:hover { background: rgba(109,124,255,0.25); color: #fff; transform: scale(1.05); }
 .mini-player.playing .mp-btn.play {
-  background: rgba(109,124,255,0.22); color: #fff;
-  box-shadow: 0 0 12px rgba(109,124,255,0.15);
+  background: var(--accent); color: #fff;
+  box-shadow: 0 0 16px rgba(109,124,255,0.25);
 }
 
 /* ═══ 音量 ═══ */
@@ -432,15 +447,15 @@ onUnmounted(() => {
   cursor: pointer; display: flex; align-items: center; justify-content: center;
   transition: all 0.2s; flex-shrink: 0;
 }
-.mp-vol-btn:hover { color: #c0c4d0; background: rgba(109,124,255,0.08); }
+.mp-vol-btn:hover { color: var(--accent); background: rgba(109,124,255,0.1); }
 .mp-vol-slider {
   -webkit-appearance: none; width: 52px; height: 3px; border-radius: 4px; cursor: pointer;
-  background: linear-gradient(to right, rgba(192,196,208,0.65) 0%, rgba(192,196,208,0.65) var(--vol-fill, 80%), rgba(0,0,0,0.06) var(--vol-fill), rgba(0,0,0,0.06) 100%);
+  background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--vol-fill, 80%), rgba(0,0,0,0.06) var(--vol-fill), rgba(0,0,0,0.06) 100%);
   outline: none;
 }
 .mp-vol-slider::-webkit-slider-thumb {
-  -webkit-appearance: none; width: 10px; height: 10px; border-radius: 50%; background: #c0c4d0;
-  box-shadow: 0 0 6px rgba(0,0,0,0.2); cursor: pointer; transition: transform 0.12s;
+  -webkit-appearance: none; width: 10px; height: 10px; border-radius: 50%; background: #fff;
+  box-shadow: 0 0 8px rgba(109,124,255,0.25); cursor: pointer; transition: transform 0.12s;
 }
-.mp-vol-slider::-webkit-slider-thumb:hover { transform: scale(1.25); background: #fff; }
+.mp-vol-slider::-webkit-slider-thumb:hover { transform: scale(1.25); background: var(--accent); }
 </style>

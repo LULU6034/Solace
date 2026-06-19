@@ -65,7 +65,7 @@ class ServerBridge {
 
     const serverScript = isDev
       ? path.join(projectRoot, 'server', 'bootstrap.js')
-      : path.join(process.resourcesPath, 'server', 'bootstrap.js');
+      : path.join(process.resourcesPath, 'app', 'server', 'bootstrap.js');
 
     console.log(`[server-ipc] 启动 Node.js Agent Server: ${serverScript}`);
     console.log(`[server-ipc] persist: ${this.persistDir}, port: ${this.port}`);

@@ -92,15 +92,15 @@ export class FullDuplexSession {
     // VAD
     this.vad = new VAD({
       sampleRate: 16000,
-      speechThreshold: 1200,
-      silenceTimeoutMs: 800,
-      minSpeechMs: 400,
+      speechThreshold: 800,    // 降低阈值：更敏感（默认500，平衡灵敏度与抗噪）
+      silenceTimeoutMs: 1000,  // 静音1秒算结束（给用户留自然停顿）
+      minSpeechMs: 250,        // 降低最短语音：短词如"好""停"也能检测
       onSpeechStart: () => this._onSpeechStart(),
       onSpeechEnd: (audio) => this._onSpeechEnd(audio),
     });
 
     // 打断检测
-    this.lightVad = new LightVAD({ sampleRate: 16000, speechThreshold: 1200 });
+    this.lightVad = new LightVAD({ sampleRate: 16000, speechThreshold: 800 });
 
     // 打断相关
     this.currentTtsAbort = null; // AbortController for current TTS
@@ -151,7 +151,7 @@ export class FullDuplexSession {
       if (this._ttsPreRoll.length > 6) this._ttsPreRoll.shift();
 
       this.lightVad.isSpeech(pcmChunk);
-      if (this.lightVad.isUserSpeaking(8)) {
+      if (this.lightVad.isUserSpeaking(5)) {  // 100ms连续语音即可打断（原来8帧=160ms）
         log.log(`打断检测：用户开始说话 (预滚缓冲=${this._ttsPreRoll.length}帧)`);
         this._interruptTTS();
         this.state = STATE.LISTENING;
@@ -241,9 +241,9 @@ export class FullDuplexSession {
     const rms = this._computeRms(audioBuffer);
     const zcr = this._computeZcr(audioBuffer);
 
-    // 音量分级
-    if (rms < 1500) this._voiceProfile.volume = 'soft';
-    else if (rms > 6000) this._voiceProfile.volume = 'loud';
+    // 音量分级（阈值配合 speechThreshold=800 调整）
+    if (rms < 1000) this._voiceProfile.volume = 'soft';
+    else if (rms > 5000) this._voiceProfile.volume = 'loud';
     else this._voiceProfile.volume = 'normal';
 
     // 语速分级（基于音节密度 ≈ ZCR 作为代理 + 时长）

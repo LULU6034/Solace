@@ -801,6 +801,21 @@ const resumeMusic = {
   },
 };
 
+const getPlaybackStatus = {
+  name: 'get_playback_status',
+  description: '查询当前音乐播放状态。返回是否正在播放、当前歌曲信息。当你需要确认播放状态时使用此工具，不要凭对话历史猜测。',
+  parameters: { type: 'object', properties: {}, required: [] },
+  async invoke() {
+    try {
+      const { playbackState } = await import('../voice/playback-state.js');
+      if (playbackState.isPlaying && playbackState.song) {
+        return JSON.stringify({ playing: true, song: playbackState.song });
+      }
+      return JSON.stringify({ playing: false, song: null });
+    } catch { return JSON.stringify({ playing: false, song: null }); }
+  },
+};
+
 const stopMusic = {
   name: 'stop_music',
   description: '停止音乐播放',
@@ -827,4 +842,4 @@ const setVolume = {
 };
 
 // 此文件被 index.js 导入时调用，传入 memory store
-export const musicTools = [searchMusic, recommendMusic, playMusic, playSimilar, pauseMusic, resumeMusic, stopMusic, setVolume];
+export const musicTools = [searchMusic, recommendMusic, playMusic, playSimilar, pauseMusic, resumeMusic, stopMusic, setVolume, getPlaybackStatus];

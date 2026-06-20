@@ -544,14 +544,22 @@ async function callAgentVoice(text) {
 
 async function sendText() {
   var t = textInput.value.trim(); if (!t || isListening.value || isThinking.value) return
-  voice.stopPlayback(); voice.stopRecognition(); voice.clearInterrupt(); window.electronAPI?.voiceInterrupt?.()
-  textInput.value = ""; showTextInput.value = false; pushSubtitle("user", t)
-  _up?.switchPage("voice"); _up?.updateAudio({ volume: 0, speaking: false, thinking: true }); ambient.transition("thinking")
-  _textThinking.value = true
-  try { var result = await callAgentVoice(t); if (result?.text) { _textSpeaking.value = true; pushSubtitle("agent", result.text) } }
-  catch (err) { console.error(err); _textSpeaking.value = false }
-  finally { _textThinking.value = false }
-  _up?.updateAudio({ volume: 0, speaking: false, thinking: false }); ambient.transition("idle")
+  textInput.value = ""; showTextInput.value = false
+  // 通过全双工 WebSocket 发送文字，统一音色
+  var sock = fd.ws?.()
+  if (fdActive.value && sock?.readyState === WebSocket.OPEN) {
+    try { sock.send(JSON.stringify({ type: 'text_input', text: t })); } catch(e) {}
+  } else {
+    // 全双工未连接时走旧通道兜底
+    voice.stopPlayback(); voice.stopRecognition(); voice.clearInterrupt(); window.electronAPI?.voiceInterrupt?.()
+    pushSubtitle("user", t)
+    _up?.switchPage("voice"); _up?.updateAudio({ volume: 0, speaking: false, thinking: true }); ambient.transition("thinking")
+    _textThinking.value = true
+    try { var result = await callAgentVoice(t); if (result?.text) { _textSpeaking.value = true; pushSubtitle("agent", result.text) } }
+    catch (err) { console.error(err); _textSpeaking.value = false }
+    finally { _textThinking.value = false }
+    _up?.updateAudio({ volume: 0, speaking: false, thinking: false }); ambient.transition("idle")
+  }
 }
 
 function attemptRecovery() { ttsUnavailable.value = false; degradeNotice.value = "" }

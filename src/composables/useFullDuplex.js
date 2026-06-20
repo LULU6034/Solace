@@ -580,6 +580,7 @@ export function useFullDuplex() {
     userEmotion,
     turnCount,
     sessionId,
+    ws: () => ws,  // 暴露 WebSocket 供 VoiceChat 文字输入使用
     start,
     stop,
     interrupt,

@@ -890,6 +890,14 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    // ── 文字输入 → 全双工通道（统一音色）──
+    if (msgType === 'text_input') {
+      if (_voiceSession) {
+        _voiceSession._processTextAsync(msg.text || '').catch(e => log.error('文本处理失败:', e?.message || e));
+      }
+      return;
+    }
+
     // ── 语音会话控制消息 (只处理语音专用消息, ping/heartbeat 走正常流程) ──
     if (msgType === 'init' || msgType === 'interrupt' || msgType === 'stop') {
       await handleVoiceMessage(ws, msg, sessionId);

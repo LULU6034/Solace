@@ -549,10 +549,22 @@ async function handleAgentChat(ws, msg) {
       });
     }
 
+    // 注入当前播放状态（与全双工通道共享）
+    const { playbackState } = await import('./voice/playback-state.js');
+    let statusMsg = '';
+    if (playbackState.isPlaying && playbackState.song) {
+      statusMsg = `[系统] 当前正在播放: 《${playbackState.song.name}》- ${playbackState.song.artist || '未知'}（songId=${playbackState.song.songId}）。如果用户问"在放什么歌"或质疑你没放，请以这个实际状态为准，不要从对话历史推测。`;
+    } else if (playbackState.song) {
+      statusMsg = `[系统] 上次播放了《${playbackState.song.name}》但已暂停/停止。当前没有在放歌。`;
+    } else {
+      statusMsg = '[系统] 当前没有在放歌。如果用户问"在放歌吗"，回答"没有"。不要根据对话历史推测播放状态。';
+    }
+    const statusMessages = [{ role: 'system', content: statusMsg }, ...messages];
+
     // Inject per-agent personality
     let personalityMessages = agent
-      ? agent.injectPersonality(messages)
-      : messages;
+      ? agent.injectPersonality(statusMessages)
+      : statusMessages;
 
     // Inject activated skill body
     if (activatedSkill) {
@@ -878,13 +890,16 @@ wss.on('connection', (ws) => {
 
     // ── 前端音乐播放状态同步 ──
     if (msgType === 'music_status') {
-      if (_voiceSession) {
-        if (msg.status === 'playing') _voiceSession._isPlaying = true;
-        else if (msg.status === 'paused' || msg.status === 'ended' || msg.status === 'stopped') {
-          _voiceSession._isPlaying = false;
-          if (msg.status === 'stopped' || msg.status === 'ended') {
-            _voiceSession.lastPlayedSong = null;
-          }
+      const { playbackState } = await import('./voice/playback-state.js');
+      if (msg.status === 'playing') {
+        if (_voiceSession) _voiceSession._isPlaying = true;
+        playbackState.isPlaying = true;
+      } else if (msg.status === 'paused' || msg.status === 'ended' || msg.status === 'stopped') {
+        if (_voiceSession) _voiceSession._isPlaying = false;
+        playbackState.isPlaying = false;
+        if (msg.status === 'stopped' || msg.status === 'ended') {
+          if (_voiceSession) _voiceSession.lastPlayedSong = null;
+          playbackState.song = null;
         }
       }
       return;

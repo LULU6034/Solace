@@ -22,6 +22,7 @@ import { createRealtimeASR } from './dashscope-asr.js';
 import { MiniMaxTTS, polishForTTS, cleanDisplayText } from './minimax-tts.js';
 import { createModuleLogger } from '../lib/debug-log.js';
 import { setLastPlayedSong, clearLastPlayedSong } from '../tools/music-tools.js';
+import { playbackState } from './playback-state.js';
 import { isCircuitClosed, recordSuccess, recordFailure } from './circuit-breaker.js';
 
 const log = createModuleLogger('full-duplex');
@@ -658,6 +659,8 @@ export class FullDuplexSession {
         this._notifyClient('music_pause', {});
         this.lastPlayedSong = null;
         this._isPlaying = false;
+        playbackState.isPlaying = false;
+        playbackState.song = null;
         clearLastPlayedSong();
         this._speakResponse('暂停了。');
         return true;
@@ -797,6 +800,8 @@ export class FullDuplexSession {
             // 记住当前播放的歌曲（供 play_similar 等后续工具使用）
             this.lastPlayedSong = { songId: song.songId, name: song.name, artist: song.artist || '' };
             this._isPlaying = true;
+            playbackState.isPlaying = true;
+            playbackState.song = { songId: song.songId, name: song.name, artist: song.artist || '' };
             setLastPlayedSong(song.songId, song.name);  // 同步到 music-tools 模块
             log.log(`[音乐] 已发送 music_play 事件: ${song.name} (${song.songId})`);
           } catch (e) { log.warn(`[音乐] NOW_PLAYING JSON 解析失败: ${e.message}, raw=${npMatch[1].slice(0,80)}`); }
@@ -828,6 +833,8 @@ export class FullDuplexSession {
           // 清除播放状态，避免Agent误判"还在放歌"
           this.lastPlayedSong = null;
           this._isPlaying = false;
+          playbackState.isPlaying = false;
+          playbackState.song = null;
           clearLastPlayedSong();
         }
         if (fullText.includes('MUSIC_RESUME')) {

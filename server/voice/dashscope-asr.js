@@ -1,23 +1,23 @@
 /**
- * DashScope Paraformer 实时语音识别 WebSocket 客户端
+ * DashScope 实时语音识别 WebSocket 客户端
  *
- * 模型: 中文通用口语（实时）paraformer-realtime-v2
- *   wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=paraformer-realtime-v2
+ * 模型: qwen3-asr-flash-realtime（中文通用口语实时）
+ *   wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime
  *
  * 协议:
  *   - JSON 消息 + base64 编码 PCM（16kHz/16bit/mono）
  *   - 内置 server_vad，服务端自动断句
  *   - 中间结果 + 语气词过滤，无需客户端额外处理
  *
- * 文档: https://help.aliyun.com/zh/model-studio/paraformer-realtime
+ * 文档: https://help.aliyun.com/zh/model-studio/qwen-asr-realtime
  */
 
 import WebSocket from 'ws';
 import { createModuleLogger } from '../lib/debug-log.js';
 
-const log = createModuleLogger('paraformer-asr');
+const log = createModuleLogger('asr');
 
-const ASR_URL = 'wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=paraformer-realtime-v2';
+const ASR_URL = 'wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime';
 
 /**
  * @param {object} opts
@@ -130,7 +130,7 @@ export function createRealtimeASR(opts = {}) {
 
             case 'error':
               log.error('服务端错误:', msg.message || msg);
-              opts.onError?.(new Error(msg.message || 'Paraformer ASR 服务端错误'));
+              opts.onError?.(new Error(msg.message || 'ASR 服务端错误'));
               break;
 
             case 'heartbeat':

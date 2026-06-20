@@ -4,7 +4,7 @@
   "version": "0.1.2",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"vite --port ${VITE_PORT:-5173}\" \"wait-on http://localhost:${VITE_PORT:-5173} && cross-env ELECTRON_IS_DEV=true VITE_PORT=${VITE_PORT:-5173} electron .\"",
+    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && cross-env ELECTRON_IS_DEV=true electron .\"",
     "build": "vite build",
     "preview": "vite preview",
     "electron:dev": "cross-env ELECTRON_IS_DEV=true electron .",

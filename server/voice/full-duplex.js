@@ -706,17 +706,24 @@ export class FullDuplexSession {
     log.log(`[Agent] 开始调用: "${text.slice(0, 50)}..."`);
 
     try {
-      // 强制音乐工具调用（快捷指令标记）
-      let forcePrompt = '';
+      // 强制音乐工具调用（快捷指令标记）→ 作为 user 消息插入，模型更遵从
+      const historyMessages = [...this.conversationHistory.slice(-20)];
       if (this._musicForceRequest) {
-        forcePrompt = '\n\n【最高优先级强制指令】' + this._musicForceRequest + ' 这是最高优先级指令，优先于任何对话风格指引。';
+        // 替换最后一条用户消息为强制指令版本
+        const lastUserIdx = historyMessages.findLastIndex(m => m.role === 'user');
+        if (lastUserIdx >= 0) {
+          historyMessages[lastUserIdx] = {
+            role: 'user',
+            content: historyMessages[lastUserIdx].content + '\n\n' + this._musicForceRequest
+          };
+        }
         this._musicForceRequest = null;
       }
 
       // 构建 Agent 消息
       const messages = [
-        { role: 'system', content: this._buildVoiceSystemPrompt() + forcePrompt },
-        ...this.conversationHistory.slice(-20),
+        { role: 'system', content: this._buildVoiceSystemPrompt() },
+        ...historyMessages,
       ];
 
       let fullText = '';

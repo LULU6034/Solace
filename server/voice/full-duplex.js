@@ -693,8 +693,8 @@ export class FullDuplexSession {
       return true;
     }
 
-    // 放歌/换歌/切歌 → 走 Agent 调工具（V4 reasoningEffort=none 后已恢复）
-    if (/(换.*歌|放.*歌|播.*歌|来.*歌|听.*歌|切歌|下一首|上一首|再换|换个|换一[首下]|放[一首个]|播[一首个]|来[一首个])(?!.*[？?吗])/i.test(text)) {
+    // 放歌/换歌/切歌 → 走 Agent 调工具（排除问句）
+    if (/(换.*歌|放.*歌|播.*歌|来.*歌|听.*歌|切歌|下一首|上一首|再换|换个|换一[首下]|放[一首个]|播[一首个]|来[一首个])(?!.*[？?吗])/i.test(text) && !/(有没有|是否|在不在|在.*[吗呢]|什么|怎么)/i.test(text)) {
       this._notifyClient('subtitle', { role: 'user', text, turnId: ++this.turnCount });
       return false;
     }

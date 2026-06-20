@@ -564,7 +564,7 @@ async function handleAgentChat(ws, msg) {
 
     // 音乐请求强制工具调用：检测用户是否在要求放歌/换歌
     const lastUser = (messages[0]?.content || '').trim();
-    if (/(换.*歌|放.*歌|播.*歌|来.*歌|听.*歌|切歌|下一首|上一首|再换|换一[首下]|放[一首个])(?!.*[？?吗])/i.test(lastUser)) {
+    if (/(换.*歌|放.*歌|播.*歌|来.*歌|听.*歌|切歌|下一首|上一首|再换|换一[首下]|放[一首个])(?!.*[？?吗])/i.test(lastUser) && !/(有没有|是否|在不在|在.*吗|什么|怎么)/i.test(lastUser)) {
       statusMessages.splice(1, 0, {
         role: 'system',
         content: '【强制执行】用户让你放歌/换歌。你必须调用 recommend_music 或 search_music，然后用 play_music 播放。绝对禁止只回文字说"给你放了XX"而不调工具。'

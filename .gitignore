@@ -53,3 +53,10 @@ test-pcm.pcm
 *.pcm
 
 release/
+
+# Build artifacts (misplaced)
+assets/
+out/
+electron-updater/
+fs-extra/
+semver/

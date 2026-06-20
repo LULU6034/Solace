@@ -23,7 +23,7 @@ export async function transcribeAudio(audioBuffer, apiKey) {
   form.append('model', 'paraformer-realtime-v2');
   form.append('format', 'wav');        // MediaRecorder 默认格式
   form.append('sample_rate', '16000');
-  form.append('disfluency_removal_enabled', 'false');
+  form.append('disfluency_removal_enabled', 'true');  // 过滤语气词
   form.append('file', new Blob([audioBuffer]), 'audio.wav');
 
   const res = await fetch(DASHSCOPE_URL, {

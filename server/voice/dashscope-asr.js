@@ -1,23 +1,23 @@
 /**
- * DashScope Qwen ASR 实时语音识别 WebSocket 客户端
+ * DashScope Paraformer 实时语音识别 WebSocket 客户端
  *
- * 协议: Qwen3 ASR Realtime（与 Lumi OS 同款）
- *   wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime
+ * 模型: 中文通用口语（实时）paraformer-realtime-v2
+ *   wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=paraformer-realtime-v2
  *
- * 与旧 Fun-ASR 协议区别：
- *   - JSON 消息 + base64 编码音频（非裸二进制 PCM）
- *   - 内置 server_vad，不需要客户端 VAD 断句
- *   - 新模型 qwen3-asr-flash-realtime，中文识别精度更高
+ * 协议:
+ *   - JSON 消息 + base64 编码 PCM（16kHz/16bit/mono）
+ *   - 内置 server_vad，服务端自动断句
+ *   - 中间结果 + 语气词过滤，无需客户端额外处理
  *
- * 文档: https://help.aliyun.com/zh/model-studio/qwen-asr-realtime
+ * 文档: https://help.aliyun.com/zh/model-studio/paraformer-realtime
  */
 
 import WebSocket from 'ws';
 import { createModuleLogger } from '../lib/debug-log.js';
 
-const log = createModuleLogger('qwen-asr');
+const log = createModuleLogger('paraformer-asr');
 
-const QWEN_ASR_URL = 'wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime';
+const ASR_URL = 'wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=paraformer-realtime-v2';
 
 /**
  * @param {object} opts
@@ -41,7 +41,7 @@ export function createRealtimeASR(opts = {}) {
 
   function connect() {
     return new Promise((resolve, reject) => {
-      ws = new WebSocket(QWEN_ASR_URL, {
+      ws = new WebSocket(ASR_URL, {
         headers: {
           'Authorization': `bearer ${apiKey}`,
         },
@@ -58,7 +58,12 @@ export function createRealtimeASR(opts = {}) {
           session: {
             input_audio_format: 'pcm',
             sample_rate: 16000,
-            input_audio_transcription: { enabled: true, language: 'zh' },
+            input_audio_transcription: {
+              enabled: true,
+              language: 'zh',
+              enable_intermediate_result: true,   // 开启中间结果
+              enable_ignore_interjection: true,   // 过滤语气词（嗯/啊/呃）
+            },
             turn_detection: {
               type: 'server_vad',
               threshold: 0.0,
@@ -125,7 +130,7 @@ export function createRealtimeASR(opts = {}) {
 
             case 'error':
               log.error('服务端错误:', msg.message || msg);
-              opts.onError?.(new Error(msg.message || 'Qwen ASR 服务端错误'));
+              opts.onError?.(new Error(msg.message || 'Paraformer ASR 服务端错误'));
               break;
 
             case 'heartbeat':

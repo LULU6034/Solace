@@ -152,6 +152,8 @@ export function polishForTTS(text) {
     .replace(/[？?]\s*/g, '？')
     .replace(/[！!]\s*/g, '！')
     .replace(/[；;]\s*/g, '；')
+    .replace(/([。？！])/g, '$1 ')
+    .replace(/\s{2,}/g, ' ')
     .trim();
 }
 
@@ -161,10 +163,6 @@ export function cleanDisplayText(text) {
     .replace(/\bspeed:[\d.]+\b/gi, '')
     .replace(/\[emotion:\w+\]/gi, '')
     .replace(/\(+(laughs|chuckle|sighs|coughs|breath|inhale|exhale|snorts|sniffs|groans)\)+/gi, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-}
-    .replace(/([。？！])/g, '$1 ')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }

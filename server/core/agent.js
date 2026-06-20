@@ -801,6 +801,37 @@ async function _extractAndRemember(messages, config, memoryStore) {
 
 // 情境事件提取已移至 server/index.js post-chat
 
+/**
+ * 确保 MemoryManager 的巩固器已注入 LLM（lazy 注入，首次运行时触发）
+ * 避免 index.js 异步注入和 agent.js afterTurn 之间的竞争
+ */
+async function _ensureConsolidatorLLM(memoryManager, config) {
+  const c = memoryManager.consolidator;
+  if (!c) return;
+  if (c._llm) return;
+  const apiKey = config?.apiKey;
+  const provider = config?.provider || 'deepseek';
+  if (!apiKey) { log.warn('[consolidator] 缺少 API Key，偏好归纳将跳过'); return; }
+  try {
+    const { createLLM } = await import('./llm-client.js');
+    c.setLlm(async (prompt) => {
+      const llm = createLLM({
+        provider,
+        model: 'deepseek-chat',
+        apiKey,
+        temperature: 0.3,
+        maxTokens: 200,
+        thinkingType: 'disabled',
+      });
+      const { content } = await llm.invoke([{ role: 'user', content: prompt }]);
+      return content?.trim() || '';
+    });
+    log.log('[consolidator] LLM 已注入 (from agent.js)');
+  } catch (e) {
+    log.warn(`[consolidator] LLM 注入失败: ${e?.message || e}`);
+  }
+}
+
 // ── Main entry ──
 
 export async function runAgent({
@@ -985,6 +1016,9 @@ export async function runAgent({
 
   // 触发后台记忆巩固（每 N 轮执行一次，非阻塞）
   if (memoryManager?.afterTurn) {
-    memoryManager.afterTurn().catch(e => log.warn(`记忆巩固失败: ${e?.message || e}`));
+    // 确保巩固器已注入 LLM（首次运行时 lazy 注入）
+    _ensureConsolidatorLLM(memoryManager, config).then(() =>
+      memoryManager.afterTurn()
+    ).catch(e => log.warn(`记忆巩固失败: ${e?.message || e}`));
   }
 }

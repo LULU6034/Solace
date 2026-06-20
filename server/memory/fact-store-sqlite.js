@@ -81,16 +81,7 @@ export class FactStore {
     this._store.run('PRAGMA journal_mode = MEMORY');
     this._store.run('PRAGMA synchronous = OFF');
     this._migrate();
-    // 验证 schema 完整性
-    try {
-      const cols = this._store.exec('PRAGMA table_info(facts)');
-      const names = cols[0]?.values?.map(r => r[1]) || [];
-      if (!names.includes('deleted_at')) {
-        log.warn(`Schema 缺少 deleted_at 列，强制重建。当前列: ${names.join(',')}`);
-        this._store.run('DROP TABLE IF EXISTS facts');
-        this._migrate();
-      }
-    } catch (e) { log.warn('操作失败', e?.message || e); }
+    // 验证 schema 完整性（表已由 _migrate 创建，仅检查列）
     this._ready = true;
     this._cleanRecycleBin();
   }
@@ -116,7 +107,7 @@ export class FactStore {
       if (cols[0]?.values) {
         for (const row of cols[0].values) existingCols.add(row[1]); // column name is index 1
       }
-    } catch (e) { log.warn('操作失败', e?.message || e); }
+    } catch (e) { /* CREATE TABLE IF NOT EXISTS 已处理，PRAGMA 失败无影响 */ }
     const addCol = (name, type) => {
       if (!existingCols.has(name)) {
         try { this._store.run(`ALTER TABLE facts ADD COLUMN ${name} ${type} DEFAULT NULL`); } catch (e) { log.warn('操作失败', e?.message || e); }

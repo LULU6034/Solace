@@ -122,12 +122,14 @@ export class FullDuplexSession {
    */
   feedAudio(pcmChunk) {
     this._debugFrameCount++;
-    // 每 5 秒输出一次调试信息
+    // 仅在异常状态时输出调试（state != IDLE 或 processing 卡住超 30s）
     const now = Date.now();
-    if (now - this._debugLastLog > 5000) {
-      log.log(`[调试] feedAudio: 5秒内 ${this._debugFrameCount} 帧, state=${this.state}, asrReady=${!!this.asr?.isReady?.()}, _processingSpeech=${this._processingSpeech}`);
+    if (this.state !== STATE.IDLE && now - this._debugLastLog > 30000) {
+      log.log(`[调试] feedAudio: ${this._debugFrameCount} 帧 in 30s, state=${this.state}, asrReady=${!!this.asr?.isReady?.()}, _processingSpeech=${this._processingSpeech}`);
       this._debugFrameCount = 0;
       this._debugLastLog = now;
+    } else if (this.state === STATE.IDLE) {
+      this._debugLastLog = now; // idle 时重置计时，不输出
     }
 
     // TTS 尾部静默：TTS 播放完 2 秒内不发音频给 ASR，防止扬声器回声

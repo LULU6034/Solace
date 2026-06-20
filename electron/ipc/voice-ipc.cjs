@@ -364,6 +364,7 @@ function setupVoiceEventForwarding(bridge) {
 function setApiKeyAndRetry(key) {
   if (!key) return;
   _configKey = key;
+  if (pythonProcess) return; // 已在运行，无需重启
   console.log('[voice-ipc] 收到 API key, 尝试启动 TTS...');
   startPythonServer();
 }

@@ -677,6 +677,19 @@ export class FullDuplexSession {
       this._notifyClient('subtitle', { role: 'user', text, turnId: ++this.turnCount });
       return false;  // 走 Agent 调 set_volume
     }
+    // 查询播放状态 → 直接回报，不走 Agent
+    if (/(在放|在播|是否.*放|正在.*放|现在.*放|有没有.*放|放.*没有|在.*播|播.*没有|什么歌).*[？?吗]?$/i.test(text)) {
+      this._notifyClient('subtitle', { role: 'user', text, turnId: ++this.turnCount });
+      if (this._isPlaying && this.lastPlayedSong) {
+        this._speakResponse(`在放呢，《${this.lastPlayedSong.name}》- ${this.lastPlayedSong.artist || '未知歌手'}`);
+      } else if (this.lastPlayedSong) {
+        this._speakResponse(`刚才放了《${this.lastPlayedSong.name}》，现在暂停了。`);
+      } else {
+        this._speakResponse('没在放歌。');
+      }
+      return true;
+    }
+
     // 放歌/换歌/切歌 → 走 Agent 调工具（V4 reasoningEffort=none 后已恢复）
     if (/(换.*歌|放.*歌|播.*歌|来.*歌|听.*歌|切歌|下一首|上一首|再换|换个|换一[首下]|放[一首个]|播[一首个]|来[一首个])(?!.*[？?吗])/i.test(text)) {
       this._notifyClient('subtitle', { role: 'user', text, turnId: ++this.turnCount });

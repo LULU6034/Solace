@@ -674,9 +674,11 @@ export class FullDuplexSession {
       this._speakResponse('继续。');
       return true;
     }
-    if (/^(声音大|大声|太小声|声音小|大点声|小点声|音量).*$/i.test(text)) {
+    // 音量调节（"太吵了"、"声音小点"、"听不到"等）
+    if (/(太吵|太响|太轻|声音.*[小大高低轻响]|[大小]点声|音量[大小]|调[大小高低]|轻一点|响一点|听不到|听不见|听不清)/i.test(text)) {
       this._notifyClient('subtitle', { role: 'user', text, turnId: ++this.turnCount });
-      return false;  // 走 Agent 调 set_volume
+      this._musicForceRequest = '【强制执行】用户让你调节音量。你必须立即调用 set_volume 工具（参数 level: 0.0-1.0）。绝对禁止只回文字！如果不调工具，用户会不满。';
+      return false;
     }
     // 放歌/换歌/切歌 → 设强制标记，走 Agent 调工具
     if (/换.*歌|放.*歌|播.*歌|来.*歌|听.*歌|切歌|下一首|上一首|想听|不要这首|跳过|不听|再换|换一[首下]|换掉|来个/i.test(text)) {

@@ -62,6 +62,7 @@ export class FullDuplexSession {
     this._pendingResolve = null; // 事件驱动: ASR 文本到达时 resolve
     this._processingSpeech = false;
     this.lastPlayedSong = null;  // { songId, name, artist } — 当前播放的歌曲
+    this._isPlaying = false;     // 前端实际播放状态（由 music_status 事件同步）
     this._interruptedContext = null;  // 被打断时未说完的话
     this._musicForceRequest = null;   // 强制音乐工具调用标记
 
@@ -653,10 +654,11 @@ export class FullDuplexSession {
     // ── 音乐控制快捷指令 ──
     if (/^(暂停|暂停一下|暂停播放|停一下|别放了|不要放了|停了|停下|停)[。！？.!?]*$/i.test(text)) {
       this._notifyClient('subtitle', { role: 'user', text, turnId: ++this.turnCount });
-      if (this.lastPlayedSong) {
-        // 知道在播 → 直接暂停
+      if (this._isPlaying || this.lastPlayedSong) {
+        // 在播 → 直接暂停
         this._notifyClient('music_pause', {});
         this.lastPlayedSong = null;
+        this._isPlaying = false;
         clearLastPlayedSong();
         this._speakResponse('暂停了。');
         return true;
@@ -668,6 +670,7 @@ export class FullDuplexSession {
     if (/^(继续|继续播放|接着放|接着播|恢复)[。！？.!?]*$/i.test(text)) {
       this._notifyClient('subtitle', { role: 'user', text, turnId: ++this.turnCount });
       this._notifyClient('music_resume', {});
+      this._isPlaying = true;
       this._speakResponse('继续。');
       return true;
     }
@@ -788,6 +791,7 @@ export class FullDuplexSession {
             this._notifyClient('music_play', { song });
             // 记住当前播放的歌曲（供 play_similar 等后续工具使用）
             this.lastPlayedSong = { songId: song.songId, name: song.name, artist: song.artist || '' };
+            this._isPlaying = true;
             setLastPlayedSong(song.songId, song.name);  // 同步到 music-tools 模块
             log.log(`[音乐] 已发送 music_play 事件: ${song.name} (${song.songId})`);
           } catch (e) { log.warn(`[音乐] NOW_PLAYING JSON 解析失败: ${e.message}, raw=${npMatch[1].slice(0,80)}`); }
@@ -818,6 +822,7 @@ export class FullDuplexSession {
           }
           // 清除播放状态，避免Agent误判"还在放歌"
           this.lastPlayedSong = null;
+          this._isPlaying = false;
           clearLastPlayedSong();
         }
         if (fullText.includes('MUSIC_RESUME')) {
@@ -923,10 +928,12 @@ export class FullDuplexSession {
     const timeOfDay = hour < 6 ? '凌晨' : hour < 9 ? '清晨' : hour < 12 ? '上午' : hour < 14 ? '中午' : hour < 18 ? '下午' : hour < 22 ? '晚上' : '深夜';
 
     let songContext = '';
-    if (this.lastPlayedSong) {
-      songContext = `\n当前播放: songId="${this.lastPlayedSong.songId}" 歌名="${this.lastPlayedSong.name}" 歌手="${this.lastPlayedSong.artist}"（仅本轮会话内有效，会话历史中的播放信息已过时）`;
+    if (this._isPlaying && this.lastPlayedSong) {
+      songContext = `\n当前正在播放: songId="${this.lastPlayedSong.songId}" 歌名="${this.lastPlayedSong.name}" 歌手="${this.lastPlayedSong.artist}"`;
+    } else if (this.lastPlayedSong) {
+      songContext = `\n上次播放: songId="${this.lastPlayedSong.songId}" 歌名="${this.lastPlayedSong.name}"（已暂停/停止）。如果用户说"继续"但没指具体歌，可用 play_music 重新播放这首。`;
     } else {
-      songContext = '\n当前未播放任何歌曲。如果用户提到听歌但你没在放，说明这是之前的会话信息，现在已经不播了。不要假设历史里的歌还在放。';
+      songContext = '\n当前未播放任何歌曲。';
     }
 
     // 打断上下文：用户打断时你正在说的话

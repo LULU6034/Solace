@@ -876,6 +876,20 @@ wss.on('connection', (ws) => {
 
     const msgType = msg.type || '';
 
+    // ── 前端音乐播放状态同步 ──
+    if (msgType === 'music_status') {
+      if (_voiceSession) {
+        if (msg.status === 'playing') _voiceSession._isPlaying = true;
+        else if (msg.status === 'paused' || msg.status === 'ended' || msg.status === 'stopped') {
+          _voiceSession._isPlaying = false;
+          if (msg.status === 'stopped' || msg.status === 'ended') {
+            _voiceSession.lastPlayedSong = null;
+          }
+        }
+      }
+      return;
+    }
+
     // ── 语音会话控制消息 (只处理语音专用消息, ping/heartbeat 走正常流程) ──
     if (msgType === 'init' || msgType === 'interrupt' || msgType === 'stop') {
       await handleVoiceMessage(ws, msg, sessionId);

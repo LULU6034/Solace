@@ -273,6 +273,11 @@ export function useFullDuplex() {
             a.volume = 0.6;
             window.__musicAudio = a;
             window.__musicCurrentTrack = msg.song;
+            // 同步播放状态到服务端
+            const sendStatus = (status) => { try { ws.send(JSON.stringify({ type: 'music_status', status })); } catch {} };
+            a.addEventListener('play', () => sendStatus('playing'));
+            a.addEventListener('pause', () => sendStatus('paused'));
+            a.addEventListener('ended', () => sendStatus('ended'));
             a.play().then(() => console.log('[FD] ✅ 播放开始:', msg.song.name)).catch(e => console.warn('[FD] ❌ 播放失败:', msg.song.name, e.message));
             window.dispatchEvent(new CustomEvent('music-nowplaying', { detail: msg.song }));
           };
@@ -304,15 +309,24 @@ export function useFullDuplex() {
         break
 
       case 'music_pause':
-        if (window.__musicAudio) { window.__musicAudio.pause(); }
+        if (window.__musicAudio) {
+          window.__musicAudio.pause();
+          try { ws.send(JSON.stringify({ type: 'music_status', status: 'paused' })); } catch {}
+        }
         break
 
       case 'music_stop':
-        if (window.__musicAudio) { window.__musicAudio.pause(); window.__musicAudio.currentTime = 0; }
+        if (window.__musicAudio) {
+          window.__musicAudio.pause();
+          window.__musicAudio.currentTime = 0;
+          try { ws.send(JSON.stringify({ type: 'music_status', status: 'stopped' })); } catch {}
+        }
         break
 
       case 'music_resume':
-        if (window.__musicAudio) { window.__musicAudio.play().catch(() => {}); }
+        if (window.__musicAudio) {
+          window.__musicAudio.play().catch(() => {});
+        }
         break
 
       case 'music_volume':

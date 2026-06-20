@@ -63,6 +63,7 @@ export class FullDuplexSession {
     this._processingSpeech = false;
     this.lastPlayedSong = null;  // { songId, name, artist } — 当前播放的歌曲
     this._interruptedContext = null;  // 被打断时未说完的话
+    this._musicForceRequest = null;   // 强制音乐工具调用标记
 
     // ── 音色/情绪追踪 ──
     this._voiceProfile = {
@@ -674,8 +675,9 @@ export class FullDuplexSession {
       return false;  // 走 Agent 调 set_volume
     }
     if (/^((放|播|来|听|换|切)(首|个|一)?(歌|音乐|曲子)|放歌|放音乐|换歌|切歌|下一首|上一首|想听歌|放一首)[。！？.!?]*$/i.test(text)) {
-      this._speakResponse('好，我来找首歌。');
-      return false;  // 继续走 Agent，让 Agent 调音乐工具
+      this._notifyClient('subtitle', { role: 'user', text, turnId: ++this.turnCount });
+      this._musicForceRequest = text;  // 标记为音乐请求，_callAgent 会注入强制指令
+      return false;
     }
     return false;
   }
@@ -699,9 +701,16 @@ export class FullDuplexSession {
     log.log(`[Agent] 开始调用: "${text.slice(0, 50)}..."`);
 
     try {
+      // 强制音乐工具调用（快捷指令标记）
+      let forcePrompt = '';
+      if (this._musicForceRequest) {
+        forcePrompt = '\n\n【强制指令】用户刚才让你放歌。你必须立即调用 recommend_music 或 search_music 获取真实歌曲列表，然后用 play_music 播放其中一首。绝对禁止只回文字"我给你放了XX"而不调工具。如果只回复文字没调 play_music，用户会不满。这是最高优先级指令，优先于任何对话风格指引。';
+        this._musicForceRequest = null;
+      }
+
       // 构建 Agent 消息
       const messages = [
-        { role: 'system', content: this._buildVoiceSystemPrompt() },
+        { role: 'system', content: this._buildVoiceSystemPrompt() + forcePrompt },
         ...this.conversationHistory.slice(-20),
       ];
 

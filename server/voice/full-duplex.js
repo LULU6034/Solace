@@ -602,10 +602,10 @@ export class FullDuplexSession {
         // 唤醒词 + 指令 → 处理指令部分
       }
 
-      // ── 打断指令 ──
-      if (/^(停|闭嘴|别说了|安静|不要说了|住口|停下|好了|够了|stop|shut\s*up)$/i.test(trimmed)) {
+      // ── 打断指令（Agent 说话时）──
+      if (/^(闭嘴|别说了|安静|不要说了|住口|好了|够了|stop|shut\s*up)$/i.test(trimmed)) {
         this._notifyClient('subtitle', { role: 'user', text: trimmed, turnId: ++this.turnCount });
-        this._interruptTTS();
+        if (this.state === STATE.SPEAKING) this._interruptTTS();
         return;
       }
 
@@ -648,6 +648,30 @@ export class FullDuplexSession {
       const w = ['日','一','二','三','四','五','六'][now.getDay()];
       this._speakResponse(`今天是${d}，星期${w}。`);
       return true;
+    }
+    // ── 音乐控制快捷指令（直接操作，不走 Agent）──
+    if (/^(暂停|暂停一下|暂停播放|停一下|别放了|不要放了|停了|停下|停)[。！？.!?]*$/i.test(text)) {
+      this._notifyClient('subtitle', { role: 'user', text, turnId: ++this.turnCount });
+      if (this.lastPlayedSong) {
+        this._notifyClient('music_pause', {});
+        this.lastPlayedSong = null;
+        clearLastPlayedSong();
+        this._speakResponse('好，暂停了。');
+      } else {
+        this._speakResponse('现在没在放歌啊。');
+        if (this.state === STATE.SPEAKING) { this._interruptTTS(); }
+      }
+      return true;
+    }
+    if (/^(继续|继续播放|接着放|接着播|恢复)[。！？.!?]*$/i.test(text)) {
+      this._notifyClient('subtitle', { role: 'user', text, turnId: ++this.turnCount });
+      this._notifyClient('music_resume', {});
+      this._speakResponse('好，继续。');
+      return true;
+    }
+    if (/^(声音大|大声|太小声|声音小|大点声|小点声|音量).*$/i.test(text)) {
+      this._notifyClient('subtitle', { role: 'user', text, turnId: ++this.turnCount });
+      return false;  // 走 Agent 调 set_volume
     }
     if (/^((放|播|来|听|换|切)(首|个|一)?(歌|音乐|曲子)|放歌|放音乐|换歌|切歌|下一首|上一首|想听歌|放一首)[。！？.!?]*$/i.test(text)) {
       this._speakResponse('好，我来找首歌。');
@@ -913,6 +937,12 @@ export class FullDuplexSession {
 
     const name = this.config.agentName || 'Sonder';
     return `你是${name}，用户最亲近的朋友。你正在和用户进行语音对话。
+
+## 音乐控制规则（极其重要）
+- 用户让你暂停/停止/继续/调音量 → **必须调用对应工具**，不能只口头回应
+- 暂停→调 pause_music，停止→调 stop_music，继续→调 resume_music，音量→调 set_volume
+- 绝对禁止只回复"好的停了"然后不调工具——你说停了没用，音乐还在播，用户会生气
+- 如果你不确定当前是否在播，先调工具再说，调了没副作用
 
 ## 称呼规则（必须遵守）
 - 如果用户告诉过你"叫我X"或"以后你叫Y"——在对话历史或用户画像中可以找到这些信息——你必须使用这些称呼

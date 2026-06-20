@@ -751,7 +751,7 @@ export class FullDuplexSession {
 
       // 流式调用 Agent (runAgent 是 async, 需要 await)
       const genResult = this.runAgent
-        ? this.runAgent(messages, { ...this.config })
+        ? this.runAgent(messages, { ...this.config, reasoningEffort: 'none' })
         : null;
       const generator = genResult instanceof Promise ? await genResult : genResult;
 

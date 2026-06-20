@@ -60,9 +60,6 @@ class ServerBridge {
     this.persistDir = path.join(app.getPath('userData'), 'agent-data');
     require('fs').mkdirSync(this.persistDir, { recursive: true });
 
-    // 迁移旧版数据目录
-    this._migrateLegacyData();
-
     // Kill any existing process on the port
     await this._killPortProcess();
 
@@ -189,63 +186,6 @@ class ServerBridge {
     this._connecting = true;
     console.log('[server-ipc] 尝试重连...');
     await this._connect();
-  }
-
-  /**
-   * 迁移旧版数据目录 → 新路径
-   *
-   * 历史路径:
-   *   1. %APPDATA%/ai-desktop-pet/agent-data/  (旧 bootstrap.js)
-   *   2. ~/.ai-desktop-pet/                       (硬编码 fallback)
-   *
-   * 新路径: %APPDATA%/solace/agent-data/ (app.getPath('userData') + '/agent-data')
-   */
-  _migrateLegacyData() {
-    const fs = require('fs');
-    const path = require('path');
-    const os = require('os');
-
-    const legacyPaths = [
-      // 旧 bootstrap.js 路径
-      path.join(app.getPath('appData'), 'ai-desktop-pet', 'agent-data'),
-      // 硬编码 fallback 路径
-      path.join(os.homedir(), '.ai-desktop-pet'),
-    ];
-
-    for (const srcDir of legacyPaths) {
-      if (!fs.existsSync(srcDir)) continue;
-
-      try {
-        const entries = fs.readdirSync(srcDir, { withFileTypes: true });
-        let migrated = 0;
-        let skipped = 0;
-
-        for (const entry of entries) {
-          const src = path.join(srcDir, entry.name);
-          const dst = path.join(this.persistDir, entry.name);
-
-          // 跳过已存在的（新数据优先）
-          if (fs.existsSync(dst)) {
-            skipped++;
-            continue;
-          }
-
-          try {
-            // recursive copy
-            fs.cpSync(src, dst, { recursive: true });
-            migrated++;
-          } catch (e) {
-            // 跳过单个文件失败，继续迁其他的
-          }
-        }
-
-        if (migrated > 0 || skipped > 0) {
-          console.log(`[server-ipc] 数据迁移: ${srcDir} → ${this.persistDir} (迁移 ${migrated}, 跳过 ${skipped})`);
-        }
-      } catch (e) {
-        // 整个目录迁移失败不阻塞启动
-      }
-    }
   }
 
   async _killPortProcess() {

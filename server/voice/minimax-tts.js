@@ -152,6 +152,18 @@ export function polishForTTS(text) {
     .replace(/[？?]\s*/g, '？')
     .replace(/[！!]\s*/g, '！')
     .replace(/[；;]\s*/g, '；')
+    .trim();
+}
+
+/** 清理显示文本：去掉速度标签、MiniMax 发声标签，保留中文语气词 */
+export function cleanDisplayText(text) {
+  return (text || '')
+    .replace(/\bspeed:[\d.]+\b/gi, '')
+    .replace(/\[emotion:\w+\]/gi, '')
+    .replace(/\(+(laughs|chuckle|sighs|coughs|breath|inhale|exhale|snorts|sniffs|groans)\)+/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
     .replace(/([。？！])/g, '$1 ')
     .replace(/\s{2,}/g, ' ')
     .trim();

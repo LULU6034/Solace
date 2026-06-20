@@ -19,7 +19,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { VAD, LightVAD } from './vad-node.js';
 import { createRealtimeASR } from './dashscope-asr.js';
-import { MiniMaxTTS, polishForTTS } from './minimax-tts.js';
+import { MiniMaxTTS, polishForTTS, cleanDisplayText } from './minimax-tts.js';
 import { createModuleLogger } from '../lib/debug-log.js';
 import { setLastPlayedSong } from '../tools/music-tools.js';
 import { isCircuitClosed, recordSuccess, recordFailure } from './circuit-breaker.js';
@@ -767,7 +767,7 @@ export class FullDuplexSession {
         // 清理格式：去掉 markdown 标记，但保留标点符号（！？~… 对 TTS 语调至关重要）
         displayText = displayText.replace(/\*\*|[*_`#>\\\-\[\]()|{}]/g, '').trim();
 
-        this.conversationHistory.push({ role: 'assistant', content: displayText });
+        this.conversationHistory.push({ role: 'assistant', content: cleanText });
         this._lastInteractionTime = Date.now();
         if (this.conversationHistory.length > 50) {
           this.conversationHistory.splice(0, 4);
@@ -777,8 +777,9 @@ export class FullDuplexSession {
         log.log(`[状态] → SPEAKING`);
         this.state = STATE.SPEAKING;
         this._notifyClient('state', { state: STATE.SPEAKING });
-        this._notifyClient('subtitle', { role: 'agent', text: displayText, turnId: this.turnCount });
-        log.log(`[TTS] "${displayText.slice(0, 50)}..." emotion=${emotion}`);
+        const cleanText = cleanDisplayText(displayText);
+        this._notifyClient('subtitle', { role: 'agent', text: cleanText, turnId: this.turnCount });
+        log.log(`[TTS] "${cleanText.slice(0, 50)}..." emotion=${emotion}`);
 
         await this._synthesizeAndSend(displayText, emotion);
         log.log(`[TTS] 完成`);

@@ -800,6 +800,7 @@ export class FullDuplexSession {
         // 清理格式：去掉 markdown 标记，但保留标点符号（！？~… 对 TTS 语调至关重要）
         displayText = displayText.replace(/\*\*|[*_`#>\\\-\[\]()|{}]/g, '').trim();
 
+        const cleanText = cleanDisplayText(displayText);
         this.conversationHistory.push({ role: 'assistant', content: cleanText });
         this._lastInteractionTime = Date.now();
         if (this.conversationHistory.length > 50) {
@@ -810,7 +811,6 @@ export class FullDuplexSession {
         log.log(`[状态] → SPEAKING`);
         this.state = STATE.SPEAKING;
         this._notifyClient('state', { state: STATE.SPEAKING });
-        const cleanText = cleanDisplayText(displayText);
         this._notifyClient('subtitle', { role: 'agent', text: cleanText, turnId: this.turnCount });
         log.log(`[TTS] "${cleanText.slice(0, 50)}..." emotion=${emotion}`);
 

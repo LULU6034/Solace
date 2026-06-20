@@ -650,24 +650,25 @@ export class FullDuplexSession {
       this._speakResponse(`今天是${d}，星期${w}。`);
       return true;
     }
-    // ── 音乐控制快捷指令（直接操作，不走 Agent）──
+    // ── 音乐控制快捷指令 ──
     if (/^(暂停|暂停一下|暂停播放|停一下|别放了|不要放了|停了|停下|停)[。！？.!?]*$/i.test(text)) {
       this._notifyClient('subtitle', { role: 'user', text, turnId: ++this.turnCount });
       if (this.lastPlayedSong) {
+        // 知道在播 → 直接暂停
         this._notifyClient('music_pause', {});
         this.lastPlayedSong = null;
         clearLastPlayedSong();
-        this._speakResponse('好，暂停了。');
-      } else {
-        this._speakResponse('现在没在放歌啊。');
-        if (this.state === STATE.SPEAKING) { this._interruptTTS(); }
+        this._speakResponse('暂停了。');
+        return true;
       }
-      return true;
+      // 不确定是否在播 → 设标记，走Agent调工具
+      this._musicForceRequest = '用户让你暂停/停止音乐。你必须立即调用 pause_music 或 stop_music 工具。即使不确定当前是否在播放也先调——调了没副作用。绝对禁止只回文字。';
+      return false;
     }
     if (/^(继续|继续播放|接着放|接着播|恢复)[。！？.!?]*$/i.test(text)) {
       this._notifyClient('subtitle', { role: 'user', text, turnId: ++this.turnCount });
       this._notifyClient('music_resume', {});
-      this._speakResponse('好，继续。');
+      this._speakResponse('继续。');
       return true;
     }
     if (/^(声音大|大声|太小声|声音小|大点声|小点声|音量).*$/i.test(text)) {
@@ -676,7 +677,7 @@ export class FullDuplexSession {
     }
     if (/^((放|播|来|听|换|切)(首|个|一)?(歌|音乐|曲子)|放歌|放音乐|换歌|切歌|下一首|上一首|想听歌|放一首)[。！？.!?]*$/i.test(text)) {
       this._notifyClient('subtitle', { role: 'user', text, turnId: ++this.turnCount });
-      this._musicForceRequest = text;  // 标记为音乐请求，_callAgent 会注入强制指令
+      this._musicForceRequest = '用户让你放歌/换歌。你必须立即调用 recommend_music 或 search_music 获取真实歌曲列表，然后用 play_music 播放其中一首。绝对禁止只回文字说"给你放了XX"而不调 play_music 工具。';
       return false;
     }
     return false;
@@ -704,7 +705,7 @@ export class FullDuplexSession {
       // 强制音乐工具调用（快捷指令标记）
       let forcePrompt = '';
       if (this._musicForceRequest) {
-        forcePrompt = '\n\n【强制指令】用户刚才让你放歌。你必须立即调用 recommend_music 或 search_music 获取真实歌曲列表，然后用 play_music 播放其中一首。绝对禁止只回文字"我给你放了XX"而不调工具。如果只回复文字没调 play_music，用户会不满。这是最高优先级指令，优先于任何对话风格指引。';
+        forcePrompt = '\n\n【最高优先级强制指令】' + this._musicForceRequest + ' 这是最高优先级指令，优先于任何对话风格指引。';
         this._musicForceRequest = null;
       }
 

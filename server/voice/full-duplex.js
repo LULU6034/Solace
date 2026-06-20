@@ -21,7 +21,7 @@ import { VAD, LightVAD } from './vad-node.js';
 import { createRealtimeASR } from './dashscope-asr.js';
 import { MiniMaxTTS, polishForTTS, cleanDisplayText } from './minimax-tts.js';
 import { createModuleLogger } from '../lib/debug-log.js';
-import { setLastPlayedSong, clearLastPlayedSong } from '../tools/music-tools.js';
+import { setLastPlayedSong, clearLastPlayedSong, recommendMusic, playMusic } from '../tools/music-tools.js';
 import { isCircuitClosed, recordSuccess, recordFailure } from './circuit-breaker.js';
 
 const log = createModuleLogger('full-duplex');
@@ -680,11 +680,30 @@ export class FullDuplexSession {
       this._musicForceRequest = '【强制执行】用户让你调节音量。你必须立即调用 set_volume 工具（参数 level: 0.0-1.0）。绝对禁止只回文字！如果不调工具，用户会不满。';
       return false;
     }
-    // 放歌/换歌/切歌 → 设强制标记，走 Agent 调工具
-    if (/换.*歌|放.*歌|播.*歌|来.*歌|听.*歌|切歌|下一首|上一首|想听|不要这首|跳过|不听|再换|换一[首下]|换掉|来个/i.test(text)) {
+    // 放歌/换歌/切歌 → 直接调网易云API，不走Agent（Agent不调工具）
+    if (/(换.*歌|放.*歌|播.*歌|来.*歌|听.*歌|切歌|下一首|上一首|再换|换个|换一[首下]|放[一首个]|播[一首个]|来[一首个])(?!.*[？?吗])/i.test(text)) {
       this._notifyClient('subtitle', { role: 'user', text, turnId: ++this.turnCount });
-      this._musicForceRequest = '【强制执行】用户让你放歌/换歌。你必须立即调用 recommend_music 或 search_music 获取歌曲列表，选一首用 play_music 播放。绝对禁止只回文字！如果不调工具只回文字，就是严重错误。';
-      return false;
+      try {
+        const result = await recommendMusic.invoke({ count: 10 });
+        const mlMatch = result.match(/MUSIC_?LIST\s*(\[[\s\S]*?\])/);
+        if (!mlMatch) { this._speakResponse('没搜到歌，换个说法试试？'); return true; }
+        const songs = JSON.parse(mlMatch[1]);
+        if (!songs?.length) { this._speakResponse('没找到合适的歌，再试试？'); return true; }
+        const pick = songs[Math.floor(Math.random() * Math.min(songs.length, 3))];
+        const playResult = await playMusic.invoke({ songId: pick.songId, songName: pick.name, artist: pick.artist || '' });
+        const npMatch = playResult.match(/NOW_PLAYING\s*(\{[\s\S]*?\})/);
+        if (npMatch) {
+          const song = JSON.parse(npMatch[1]);
+          this._notifyClient('music_play', { song });
+          this.lastPlayedSong = { songId: song.songId, name: song.name, artist: song.artist || '' };
+          this._isPlaying = true;
+          setLastPlayedSong(song.songId, song.name);
+          const ml2 = playResult.match(/MUSIC_?LIST\s*(\[[\s\S]*?\])/);
+          if (ml2) { this._notifyClient('music_list', { songs: JSON.parse(ml2[1]) }); }
+          this._speakResponse('给你换一首《' + (song.name || '未知') + '》~');
+        }
+      } catch (e) { log.error('[音乐] 直调失败:', e.message); this._speakResponse('出错了，再试一次？'); }
+      return true;
     }
     return false;
   }
@@ -708,17 +727,15 @@ export class FullDuplexSession {
     log.log(`[Agent] 开始调用: "${text.slice(0, 50)}..."`);
 
     try {
-      // 强制音乐工具调用（快捷指令标记）→ 作为 user 消息插入，模型更遵从
+      // 强制音乐工具调用（快捷指令标记，仅音量调节还走此路径）
       const historyMessages = [...this.conversationHistory.slice(-20)];
       if (this._musicForceRequest) {
-        // 替换最后一条用户消息为强制指令版本
         const lastUserIdx = historyMessages.findLastIndex(m => m.role === 'user');
         if (lastUserIdx >= 0) {
           historyMessages[lastUserIdx] = {
             role: 'user',
             content: historyMessages[lastUserIdx].content + '\n\n' + this._musicForceRequest
           };
-          log.log(`[强制指令] 已注入到用户消息: "${this._musicForceRequest.slice(0, 60)}..."`);
         }
         this._musicForceRequest = null;
       }

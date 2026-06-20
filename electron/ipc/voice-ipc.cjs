@@ -134,7 +134,7 @@ function getApiKeyFromConfig() {
 
   // ── MiniMax 音色 (v1 不支持 emotion/pitch/标签) ──
   const MINIMAX_VOICES = {
-    default_female: 'Chinese (Mandarin)_Gentleman',  // 中文绅士男声
+    default_female: 'Chinese (Mandarin)_Unrestrained_Young_Man',
     default_male: 'male-qn-jingying',
     gentle_female: 'female-yousheng',
     young_male: 'male-qn-qingse',

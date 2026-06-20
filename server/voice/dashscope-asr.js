@@ -15,7 +15,7 @@
 import WebSocket from 'ws';
 import { createModuleLogger } from '../lib/debug-log.js';
 
-const log = createModuleLogger('asr');
+const log = createModuleLogger('qwen-asr');
 
 const ASR_URL = 'wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime';
 
@@ -58,12 +58,7 @@ export function createRealtimeASR(opts = {}) {
           session: {
             input_audio_format: 'pcm',
             sample_rate: 16000,
-            input_audio_transcription: {
-              enabled: true,
-              language: 'zh',
-              enable_intermediate_result: true,   // 开启中间结果
-              enable_ignore_interjection: true,   // 过滤语气词（嗯/啊/呃）
-            },
+            input_audio_transcription: { enabled: true, language: 'zh' },
             turn_detection: {
               type: 'server_vad',
               threshold: 0.0,

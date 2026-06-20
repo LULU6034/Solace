@@ -718,6 +718,7 @@ export class FullDuplexSession {
             role: 'user',
             content: historyMessages[lastUserIdx].content + '\n\n' + this._musicForceRequest
           };
+          log.log(`[强制指令] 已注入到用户消息: "${this._musicForceRequest.slice(0, 60)}..."`);
         }
         this._musicForceRequest = null;
       }

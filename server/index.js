@@ -747,7 +747,7 @@ wss.on('connection', (ws) => {
           config: {
             ..._voiceConfig,
             provider: _voiceConfig.provider || 'deepseek',
-            model: _voiceConfig.model || 'deepseek-chat',
+            model: _voiceConfig.model || 'deepseek-v4-pro',
             apiKey: _voiceConfig.apiKey || '',
             dashscopeApiKey: _voiceConfig.dashscopeApiKey || '',
             minimaxApiKey: _voiceConfig.minimaxApiKey || '',

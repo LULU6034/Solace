@@ -247,7 +247,7 @@ const provider = ref('claude')
     minimaxApiKey.value = cfg.minimaxApiKey || ''
     provider.value = cfg.provider || 'claude'
     claudeModel.value = (cfg.provider === 'claude' && cfg.model) ? cfg.model : 'claude-sonnet-4-20250506'
-    deepseekModel.value = (cfg.provider === 'deepseek' && cfg.model) ? cfg.model : 'deepseek-chat'
+    deepseekModel.value = (cfg.provider === 'deepseek' && cfg.model) ? cfg.model : 'deepseek-v4-pro'
     openaiModel.value = (cfg.provider === 'openai' && cfg.model) ? cfg.model : 'gpt-4o'
     openaiBaseUrl.value = (cfg.provider === 'openai' && cfg.baseUrl) ? cfg.baseUrl : 'https://api.openai.com/v1'
   }
@@ -259,8 +259,17 @@ const providers = [
   { id: 'deepseek', icon: '<svg viewBox="0 0 24 24" fill="#4C6EF5" style="width:16px;height:16px"><path d="M12 2l9 5v10l-9 5-9-5V7z"/></svg>', color: '#4C6EF5', name: 'DeepSeek', desc: '高性价比 · 中文出色' },
   { id: 'openai',   icon: '<svg viewBox="0 0 24 24" fill="none" stroke="#10A37F" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>', color: '#10A37F', name: 'OpenAI',   desc: '兼容接口 · 灵活配置' },
 ]
+const claudeModels = [
+  { value: 'claude-sonnet-4-20250506', label: 'Sonnet 4' },
+  { value: 'claude-opus-4-8', label: 'Opus 4.8' },
+  { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
+]
+const deepseekModels = [
+  { value: 'deepseek-v4-pro', label: 'Pro' },
+  { value: 'deepseek-v4-flash', label: 'Flash' },
+]
 const claudeModel = ref('claude-sonnet-4-20250506')
-const deepseekModel = ref('deepseek-chat')
+const deepseekModel = ref('deepseek-v4-pro')
 const openaiModel = ref('gpt-4o')
 const openaiBaseUrl = ref('https://api.openai.com/v1')
 const userProfile = ref({})

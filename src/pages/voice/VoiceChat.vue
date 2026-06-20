@@ -152,7 +152,7 @@ async function toggleFD() {
     await fd.start({
       apiKey: config.apiKey,
       provider: config.provider || 'deepseek',
-      model: config.model || 'deepseek-chat',
+      model: config.model || 'deepseek-v4-pro',
       dashscopeApiKey: config.dashscopeApiKey || '',
       minimaxApiKey: config.minimaxApiKey || '',
       deepgramApiKey: config.deepgramApiKey || '',

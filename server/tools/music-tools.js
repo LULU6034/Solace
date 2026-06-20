@@ -626,16 +626,18 @@ export const recommendMusic = {
       })
       .sort((a, b) => b._score - a._score);
 
-    // 5. 多样性过滤：同艺人 ≤ 2 首
+    // 5. 多样性：同艺人最多 1 首 → 去掉重复推荐
     const artistCount = {};
     const filtered = [];
     for (const s of scored) {
       const primaryArtist = s.artist.split(' / ')[0];
-      artistCount[primaryArtist] = (artistCount[primaryArtist] || 0) + 1;
-      if (artistCount[primaryArtist] <= 2) filtered.push(s);
+      if (!artistCount[primaryArtist]) {
+        artistCount[primaryArtist] = true;
+        filtered.push(s);
+      }
     }
 
-    // 6. 取前 N 首，洗牌避免每次一样
+    // 6. 取前 N+8 首，洗牌后截取 N 首 → 每次结果不同
     const pool = filtered.slice(0, Math.min(count + 8, 20));
     shuffleArray(pool);
     const top = pool.slice(0, Math.min(count, 10));

@@ -62,6 +62,7 @@ export class FullDuplexSession {
     this._pendingResolve = null; // 事件驱动: ASR 文本到达时 resolve
     this._processingSpeech = false;
     this.lastPlayedSong = null;  // { songId, name, artist } — 当前播放的歌曲
+    this._interruptedContext = null;  // 被打断时未说完的话
 
     // ── 音色/情绪追踪 ──
     this._voiceProfile = {
@@ -715,11 +716,15 @@ export class FullDuplexSession {
       }
 
       if (this.state === STATE.LISTENING) {
-        // 被打断：撤回已写入的用户消息，避免和新消息连在一起被Agent看到
+        // 被打断：撤回已写入的用户消息，保存未说完的话供下轮感知
         const lastMsg = this.conversationHistory[this.conversationHistory.length - 1];
         if (lastMsg?.role === 'user' && lastMsg.content === text) {
           this.conversationHistory.pop();
-          log.log('[打断] 已撤回用户消息');
+        }
+        if (fullText?.trim()) {
+          // 截取前80字作为打断上下文（过长的中间文本无意义）
+          this._interruptedContext = fullText.trim().slice(0, 80);
+          log.log(`[打断] 保留上下文: "${this._interruptedContext.slice(0, 40)}..."`);
         }
         return;
       }
@@ -890,6 +895,13 @@ export class FullDuplexSession {
       songContext = '\n当前未播放任何歌曲。如果用户提到听歌但你没在放，说明这是之前的会话信息，现在已经不播了。不要假设历史里的歌还在放。';
     }
 
+    // 打断上下文：用户打断时你正在说的话
+    let interruptContext = '';
+    if (this._interruptedContext) {
+      interruptContext = `\n⚠️ 你刚才正在说"${this._interruptedContext}"时被用户打断了。用户的下一句话很可能是对你刚才说的内容的纠正、反对、补充、或改变话题。请根据用户的打断内容自然调整回复——如果用户在纠正你，先承认再说对的；如果用户换了话题，就别继续刚才的话了。`;
+      this._interruptedContext = null; // 只用一次
+    }
+
     // ── 音色感知描述 ──
     const vp = this._voiceProfile;
     const emoCN = { happy: '开心', sad: '难过', angry: '生气', worried: '担忧', gentle: '温柔',
@@ -941,7 +953,7 @@ export class FullDuplexSession {
 
 当前时间: ${timeOfDay}（现在是 ${new Date().toLocaleDateString('zh-CN')}）
 距上次对话: ${this._timeSinceLast()}（注意：对话历史中可能包含更早的消息，只有最近几轮的才是刚刚说的。如果历史里的话题和现在对不上，以最近的对话为准）
-对话轮数: ${this.turnCount}${songContext}
+对话轮数: ${this.turnCount}${songContext}${interruptContext}
 ${voiceDesc}
 
 ## 时间感知（根据离开时长调整开场方式）

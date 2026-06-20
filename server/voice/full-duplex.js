@@ -715,7 +715,12 @@ export class FullDuplexSession {
       }
 
       if (this.state === STATE.LISTENING) {
-        // 被打断，不保存这轮
+        // 被打断：撤回已写入的用户消息，避免和新消息连在一起被Agent看到
+        const lastMsg = this.conversationHistory[this.conversationHistory.length - 1];
+        if (lastMsg?.role === 'user' && lastMsg.content === text) {
+          this.conversationHistory.pop();
+          log.log('[打断] 已撤回用户消息');
+        }
         return;
       }
 

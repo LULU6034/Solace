@@ -1126,7 +1126,15 @@ ${voiceDesc}
           this.conversationHistory = data.history.slice(-30);
           this.turnCount = data.turnCount || 0;
           this._lastInteractionTime = data.lastInteractionTime || 0;
-          log.log(`[共享上下文] 已恢复 ${this.conversationHistory.length} 条历史, turn=${this.turnCount}, 距上次=${this._timeSinceLast()}前`);
+          const gap = this._timeSinceLast();
+          log.log(`[共享上下文] 已恢复 ${this.conversationHistory.length} 条历史, turn=${this.turnCount}, 距上次=${gap}前`);
+          // 如果间隔超过 5 分钟，注入一条系统提醒，防止 Agent 基于过时上下文回复
+          if (this._lastInteractionTime && (Date.now() - this._lastInteractionTime) > 300000) {
+            this.conversationHistory.push({
+              role: 'system',
+              content: `[系统] 应用已重启，距上次对话已过${gap}。你不在的这段时间里没有发生任何事——之前放的歌早就停了，工具调用结果也已失效。不要根据对话历史里的旧消息推断当前状态（如是否在放歌、上次搜索了什么等），这些都已过时。如果用户问在放什么歌，根据当前实际状态回答，不要引用历史中的播放记录。`
+            });
+          }
         }
       }
     } catch (e) { log.warn('[共享上下文] 恢复失败:', e.message); }

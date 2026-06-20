@@ -48,6 +48,9 @@ export function useFullDuplex() {
   let mediaStream = null
   let isCapturing = false
 
+  // ── 全局音量（TTS + 音乐共享）──
+  let _globalVolume = 0.8
+
   // ── Audio playback (MediaSource) ──
   let mediaSource = null
   let sourceBuffer = null
@@ -270,7 +273,7 @@ export function useFullDuplex() {
           const playMusic = (url) => {
             if (window.__musicAudio) { window.__musicAudio.pause(); }
             const a = new Audio(url);
-            a.volume = 0.6;
+            a.volume = _globalVolume;
             window.__musicAudio = a;
             window.__musicCurrentTrack = msg.song;
             // 同步播放状态到服务端
@@ -330,8 +333,10 @@ export function useFullDuplex() {
         break
 
       case 'music_volume':
-        if (window.__musicAudio && msg.level != null) {
-          window.__musicAudio.volume = Math.max(0, Math.min(1, msg.level));
+        if (msg.level != null) {
+          _globalVolume = Math.max(0, Math.min(1, msg.level));
+          if (window.__musicAudio) window.__musicAudio.volume = _globalVolume;
+          if (currentPlayAudio) currentPlayAudio.volume = _globalVolume;
         }
         break
 
@@ -522,6 +527,7 @@ export function useFullDuplex() {
     const url = URL.createObjectURL(blob)
 
     const audio = new Audio(url)
+    audio.volume = _globalVolume
     currentPlayAudio = audio
 
     audio.onended = () => {

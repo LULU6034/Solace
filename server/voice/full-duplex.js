@@ -762,6 +762,24 @@ export class FullDuplexSession {
             log.log(`[音乐] 歌单: ${songs.length}首`);
           } catch (e) { log.warn(`[音乐] MUSIC_LIST 解析失败: ${e.message}, raw=${mlMatch[1].slice(0,100)}`); }
         }
+        // 解析音乐控制标记 → 发送前端事件
+        if (fullText.includes('MUSIC_PAUSE')) {
+          this._notifyClient('music_pause', {});
+          displayText = displayText.replace(/MUSIC_PAUSE/gi, '').trim();
+        }
+        if (fullText.includes('MUSIC_STOP')) {
+          this._notifyClient('music_stop', {});
+          displayText = displayText.replace(/MUSIC_STOP/gi, '').trim();
+        }
+        if (fullText.includes('MUSIC_RESUME')) {
+          this._notifyClient('music_resume', {});
+          displayText = displayText.replace(/MUSIC_RESUME/gi, '').trim();
+        }
+        const volMatch = fullText.match(/MUSIC_VOLUME\s+([\d.]+)/i);
+        if (volMatch) {
+          this._notifyClient('music_volume', { level: parseFloat(volMatch[1]) });
+          displayText = displayText.replace(/MUSIC_VOLUME\s+[\d.]+/gi, '').trim();
+        }
         // 兜底清理：去掉可能泄漏到显示文本的 MUSIC_LIST/NOW_PLAYING 残留
         displayText = displayText.replace(/MUSIC_?LIST\s*\[[\s\S]*?\]/gi, '').replace(/NOW_PLAYING\s*\{[\s\S]*?\}/gi, '');
         // 清理格式：去掉 markdown 标记，但保留标点符号（！？~… 对 TTS 语调至关重要）

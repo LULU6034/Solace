@@ -303,6 +303,24 @@ export function useFullDuplex() {
         }
         break
 
+      case 'music_pause':
+        if (window.__musicAudio) { window.__musicAudio.pause(); }
+        break
+
+      case 'music_stop':
+        if (window.__musicAudio) { window.__musicAudio.pause(); window.__musicAudio.currentTime = 0; }
+        break
+
+      case 'music_resume':
+        if (window.__musicAudio) { window.__musicAudio.play().catch(() => {}); }
+        break
+
+      case 'music_volume':
+        if (window.__musicAudio && msg.level != null) {
+          window.__musicAudio.volume = Math.max(0, Math.min(1, msg.level));
+        }
+        break
+
       case 'music_list':
         if (msg.songs?.length) {
           localStorage.setItem('music-playlist', JSON.stringify(msg.songs));

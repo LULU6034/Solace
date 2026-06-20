@@ -588,6 +588,15 @@ async function _runAnswerPhase({
               }
             }
           }
+          // 音乐控制标记：MUSIC_PAUSE / MUSIC_STOP / MUSIC_RESUME / MUSIC_VOLUME
+          const mcMatch = tm.content.match(/^(MUSIC_(?:PAUSE|STOP|RESUME|VOLUME\s+[\d.]+))/m);
+          if (mcMatch) {
+            const mcTag = mcMatch[1].trim();
+            if (!finalText.includes(mcTag)) {
+              finalText = finalText.trim() + '\n' + mcTag;
+              log.log(`${mcTag} 已追加到回复`);
+            }
+          }
         }
       }
     } catch (e) { log.warn(`音乐指令注入失败: ${e.message}`); }

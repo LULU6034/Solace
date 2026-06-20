@@ -269,6 +269,7 @@ export function setLastPlayedSong(songId, name) {
   _lastPlayedSongName = name || '';
 }
 export function getLastPlayedSongId() { return _lastPlayedSongId; }
+export function clearLastPlayedSong() { _lastPlayedSongId = null; _lastPlayedSongName = ''; }
 
 // ── 记忆检索 ──
 let _memoryStore = null;

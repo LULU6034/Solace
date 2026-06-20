@@ -21,7 +21,7 @@ import { VAD, LightVAD } from './vad-node.js';
 import { createRealtimeASR } from './dashscope-asr.js';
 import { MiniMaxTTS, polishForTTS, cleanDisplayText } from './minimax-tts.js';
 import { createModuleLogger } from '../lib/debug-log.js';
-import { setLastPlayedSong } from '../tools/music-tools.js';
+import { setLastPlayedSong, clearLastPlayedSong } from '../tools/music-tools.js';
 import { isCircuitClosed, recordSuccess, recordFailure } from './circuit-breaker.js';
 
 const log = createModuleLogger('full-duplex');
@@ -762,14 +762,19 @@ export class FullDuplexSession {
             log.log(`[音乐] 歌单: ${songs.length}首`);
           } catch (e) { log.warn(`[音乐] MUSIC_LIST 解析失败: ${e.message}, raw=${mlMatch[1].slice(0,100)}`); }
         }
-        // 解析音乐控制标记 → 发送前端事件
-        if (fullText.includes('MUSIC_PAUSE')) {
-          this._notifyClient('music_pause', {});
-          displayText = displayText.replace(/MUSIC_PAUSE/gi, '').trim();
-        }
-        if (fullText.includes('MUSIC_STOP')) {
-          this._notifyClient('music_stop', {});
-          displayText = displayText.replace(/MUSIC_STOP/gi, '').trim();
+        // 解析音乐控制标记 → 发送前端事件 + 更新服务端状态
+        if (fullText.includes('MUSIC_PAUSE') || fullText.includes('MUSIC_STOP')) {
+          if (fullText.includes('MUSIC_PAUSE')) {
+            this._notifyClient('music_pause', {});
+            displayText = displayText.replace(/MUSIC_PAUSE/gi, '').trim();
+          }
+          if (fullText.includes('MUSIC_STOP')) {
+            this._notifyClient('music_stop', {});
+            displayText = displayText.replace(/MUSIC_STOP/gi, '').trim();
+          }
+          // 清除播放状态，避免Agent误判"还在放歌"
+          this.lastPlayedSong = null;
+          clearLastPlayedSong();
         }
         if (fullText.includes('MUSIC_RESUME')) {
           this._notifyClient('music_resume', {});

@@ -21,7 +21,7 @@ import { VAD, LightVAD } from './vad-node.js';
 import { createRealtimeASR } from './dashscope-asr.js';
 import { MiniMaxTTS, polishForTTS, cleanDisplayText } from './minimax-tts.js';
 import { createModuleLogger } from '../lib/debug-log.js';
-import { setLastPlayedSong, clearLastPlayedSong } from '../tools/music-tools.js';
+import { setLastPlayedSong, clearLastPlayedSong, recommendMusic, searchMusic, playMusic } from '../tools/music-tools.js';
 import { isCircuitClosed, recordSuccess, recordFailure } from './circuit-breaker.js';
 
 const log = createModuleLogger('full-duplex');
@@ -678,10 +678,11 @@ export class FullDuplexSession {
       this._notifyClient('subtitle', { role: 'user', text, turnId: ++this.turnCount });
       return false;  // 走 Agent 调 set_volume
     }
-    if (/^((放|播|来|听|换|切)(首|个|一)?(歌|音乐|曲子)|放歌|放音乐|换歌|切歌|下一首|上一首|想听歌|放一首)[。！？.!?]*$/i.test(text)) {
+    // 放歌/换歌 → 直接调网易云API，不走Agent
+    if (/(放|播|来|听|换|切|再换|换一)[首歌曲子乐]|想听|来一首|换一下|换掉|不要这首|跳过|不听这个|换个口味/i.test(text)) {
       this._notifyClient('subtitle', { role: 'user', text, turnId: ++this.turnCount });
-      this._musicForceRequest = '用户让你放歌/换歌。你必须立即调用 recommend_music 或 search_music 获取真实歌曲列表，然后用 play_music 播放其中一首。绝对禁止只回文字说"给你放了XX"而不调 play_music 工具。';
-      return false;
+      this._directMusicPlay();
+      return true;
     }
     return false;
   }
@@ -695,6 +696,45 @@ export class FullDuplexSession {
     if (this._ttsEchoCache.length > 20) this._ttsEchoCache.shift();
     // TTS 合成
     this._synthesizeAndSend(resp, 'neutral');
+  }
+
+  /** 直接调网易云API放歌，绕过Agent（保证可靠性） */
+  async _directMusicPlay() {
+    try {
+      // 1. 推荐歌曲
+      const recResult = await recommendMusic.invoke({ count: 10 });
+      // 2. 解析 MUSIC_LIST
+      const mlMatch = recResult.match(/MUSIC_?LIST\s*(\[[\s\S]*?\])/);
+      if (!mlMatch) { this._speakResponse('没找到歌，再试一次？'); return; }
+      const songs = JSON.parse(mlMatch[1]);
+      if (!songs?.length) { this._speakResponse('没找到歌，再试一次？'); return; }
+      // 3. 随机选一首（上次放过的排除）
+      if (songs.length > 1 && this.lastPlayedSong) {
+        const filtered = songs.filter(s => String(s.songId) !== String(this.lastPlayedSong.songId));
+        if (filtered.length > 0) songs.splice(0, songs.length, ...filtered);
+      }
+      const pick = songs[Math.floor(Math.random() * Math.min(songs.length, 3))];
+      // 4. 播放
+      const playResult = await playMusic.invoke({ songId: pick.songId, songName: pick.name, artist: pick.artist || '' });
+      // 5. 解析 NOW_PLAYING
+      const npMatch = playResult.match(/NOW_PLAYING\s*(\{[\s\S]*?\})/);
+      if (npMatch) {
+        const song = JSON.parse(npMatch[1]);
+        this._notifyClient('music_play', { song });
+        this.lastPlayedSong = { songId: song.songId, name: song.name, artist: song.artist || '' };
+        this._isPlaying = true;
+        setLastPlayedSong(song.songId, song.name);
+        // 歌单也发
+        const ml = playResult.match(/MUSIC_?LIST\s*(\[[\s\S]*?\])/);
+        if (ml) { this._notifyClient('music_list', { songs: JSON.parse(ml[1]) }); }
+        this._speakResponse('来，听听这首《' + (song.name || '未知') + '》~');
+      } else {
+        this._speakResponse('好的，放了首新歌~');
+      }
+    } catch (e) {
+      log.error('直接放歌失败:', e.message);
+      this._speakResponse('抱歉，放歌出了点问题，再试一次吧？');
+    }
   }
 
   // ── Agent 调用 ──

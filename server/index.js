@@ -559,7 +559,8 @@ async function handleAgentChat(ws, msg) {
     } else {
       statusMsg = '[系统] 当前没有在放歌。如果用户问"在放歌吗"，回答"没有"。不要根据对话历史推测播放状态。';
     }
-    const statusMessages = [{ role: 'system', content: statusMsg }, ...messages];
+    // 播放状态消息，紧贴用户输入后面（高权重位置）
+    const statusMessages = [messages[0], { role: 'system', content: statusMsg }, ...messages.slice(1)];
 
     // Inject per-agent personality
     let personalityMessages = agent
